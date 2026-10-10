@@ -107,6 +107,14 @@
   }
   #update.show { display: inline-flex; }
   #update[disabled] { opacity: .85; }
+  #sightings {
+    align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 14px 0 10px;
+    border-radius: 20px; background: var(--surface); color: var(--ink); font-weight: 600; font-size: 14px; box-shadow: var(--shadow);
+  }
+  #sightings svg { width: 20px; height: 20px; }
+  #sightings[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+  #sightings[aria-pressed="true"] svg { fill: currentColor; }
+  body.searching #sightings { display: none; }
 
   /* ── Sheet ── */
   #sheet {
@@ -200,6 +208,7 @@
     <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
     <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 5.1A9.6 9.6 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.5 6.6A17 17 0 0 0 2 12s3.6 7 10 7a9.700 9.700 0 0 0 4.200-1"/></symbol>
     <symbol id="i-retry" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.300 6.300M20 4v7h-7"/></symbol>
+    <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="7" cy="8" r="2"/><circle cx="16" cy="6" r="2"/><circle cx="12" cy="14" r="2"/><circle cx="18" cy="17" r="2"/><circle cx="6" cy="18" r="2"/></symbol>
     <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.400-7-10a4 4 0 0 1 7-2.600A4 4 0 0 1 19 10c0 5.600-7 10-7 10Z"/></symbol>
   </defs>
 </svg>
@@ -218,6 +227,7 @@
     <div id="suggest" role="listbox"></div>
   </div>
   <button id="update"></button>
+  <button id="sightings" aria-pressed="false" hidden><svg class="i"><use href="#i-dots"/></svg>Sightings</button>
 </div>
 
 <section id="sheet" aria-label="Your species">
@@ -239,6 +249,9 @@
     <p><b>About the ranges.</b> They are predictions from iNaturalist's geomodel, built from where people
       have recorded each species. They are estimates, not surveyed boundaries, and less-observed species
       may have no range at all.</p>
+    <p><b>About sightings.</b> The Sightings button adds a dot for each research-grade iNaturalist
+      observation. Dots show where people have looked, so gaps do not mean absence. Faded circles are
+      sightings whose location iNaturalist has blurred, usually to protect a threatened species.</p>
     <p>Range data © <a href="https://www.inaturalist.org/geo_model" target="_blank" rel="noopener">iNaturalist</a> (CC BY 4.0).
       Map © <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a>,
       <a href="https://www.openmaptiles.org" target="_blank" rel="noopener">OpenMapTiles</a> and
@@ -268,6 +281,10 @@ const BASEMAP = {
 const PALETTE = ['#d1495b', '#2e86ab', '#8f5fbf', '#e07a2f', '#17a398', '#c04cae', '#5b6ee1', '#7a9e1f'];
 const GROUP_LIMIT = 40;
 const STORE_KEY = 'speciesmap.items';
+const SIGHTINGS_KEY = 'speciesmap.sightings';
+// A broken-out group shows sightings for every species only up to this many; each species is
+// its own tile layer, so beyond that they appear for the spotlighted species alone.
+const SIGHTINGS_MAX_SPECIES = 20;
 const EXAMPLES = [
   { label: 'Monarch & common milkweed', names: ['Danaus plexippus', 'Asclepias syriaca'] },
   { label: 'Wolf & moose', names: ['Canis lupus', 'Alces alces'] },
@@ -279,8 +296,9 @@ const $ = id => document.getElementById(id);
 const native = window.Android || null;
 const darkQuery = matchMedia('(prefers-color-scheme: dark)');
 
-const state = { items: [], shared: null, sharedKm2: 0, sharedFailed: false, comparing: false };
+const state = { items: [], shared: null, sharedKm2: 0, sharedFailed: false, comparing: false, sightings: false };
 let styleReady = false;
+const sightingLayers = new Set();
 let herePopup = null;
 
 /* ── Helpers ── */
@@ -355,6 +373,8 @@ function rebuildLayers() {
       paint: { 'line-color': darkQuery.matches ? '#fff3c4' : '#3a2c00', 'line-width': 1.6 } }, before);
   }
   state.items.forEach(syncLayer);
+  sightingLayers.clear(); // the new style dropped them
+  syncSightings();
 }
 function syncLayer(it) {
   if (!styleReady) return;
@@ -420,6 +440,36 @@ function bounds(features) {
     }
   }
   return [w, s, e, n];
+}
+// Sightings are iNaturalist's own map tiles of research-grade observations, one layer per
+// species (or per group shown as one range), tinted to match its range.
+function wantedSightings() {
+  const want = new Map();
+  if (!state.sightings) return want;
+  const add = (taxon, color) => want.set(`sightings-${taxon.id}-${color.slice(1)}`, { taxon, color });
+  for (const it of shownItems()) {
+    if (!isSplit(it)) add(it.taxon, it.color);
+    else if (it.spot != null) it.members.filter(m => m.taxon.id === it.spot).forEach(m => add(m.taxon, m.color));
+    else if (it.members.length <= SIGHTINGS_MAX_SPECIES) it.members.forEach(m => add(m.taxon, m.color));
+  }
+  return want;
+}
+function syncSightings() {
+  if (!styleReady) return;
+  const want = wantedSightings();
+  for (const id of [...sightingLayers]) {
+    if (want.has(id)) continue;
+    map.removeLayer(id);
+    map.removeSource(id);
+    sightingLayers.delete(id);
+  }
+  for (const [id, { taxon, color }] of want) {
+    if (sightingLayers.has(id)) continue;
+    map.addSource(id, { type: 'raster', tileSize: 512, tiles: [
+      `${API}/points/{z}/{x}/{y}.png?taxon_id=${taxon.id}&quality_grade=research&color=%23${color.slice(1)}`] });
+    map.addLayer({ id, type: 'raster', source: id }, labelLayerId());
+    sightingLayers.add(id);
+  }
 }
 function fitTo(features) {
   features = features.filter(Boolean);
@@ -524,7 +574,13 @@ async function fetchRange(taxon, onProgress) {
 // A group can hold up to GROUP_LIMIT species, more than any fixed palette: step round the hue
 // wheel by the golden angle and vary lightness so neighbours in the list stay distinct.
 function memberColor(i) {
-  return `hsl(${Math.round(i * 137.508) % 360}, ${i % 2 ? 72 : 60}%, ${[44, 56, 36][i % 3]}%)`;
+  const h = Math.round(i * 137.508) % 360, sat = (i % 2 ? 72 : 60) / 100, l = [44, 56, 36][i % 3] / 100;
+  const k = sat * Math.min(l, 1 - l);
+  const channel = n => {
+    const t = (n + h / 30) % 12;
+    return Math.round(255 * (l - k * Math.max(-1, Math.min(t - 3, 9 - t, 1)))).toString(16).padStart(2, '0');
+  };
+  return `#${channel(0)}${channel(8)}${channel(4)}`;
 }
 // Lets the browser draw a status change before a long synchronous geometry step.
 function paint() { return new Promise(r => setTimeout(r, 40)); }
@@ -613,6 +669,7 @@ async function compare() {
     state.comparing = false;
   }
   if (styleReady && map.getSource('shared')) map.getSource('shared').setData(state.shared || EMPTY);
+  syncSightings();
   render();
 }
 
@@ -631,6 +688,7 @@ function render() {
   else if (state.shared) { title = `Shared range: ${fmtArea(state.sharedKm2)}`; sub = `Gold on the map: where ${shown.length === 2 ? 'both' : 'all ' + shown.length} are expected`; }
   else { title = 'No shared range'; sub = 'Their ranges do not meet. Hide one to compare the rest.'; }
 
+  $('sightings').hidden = !shown.length;
   $('summary').innerHTML = `<b>${esc(title)}</b>${sub ? `<span>${esc(sub)}</span>` : ''}`;
   const head = $('sheet-head');
   const lead = busy ? '<div class="spinner"></div>' : state.shared ? '<div class="swatch"></div>' : '';
@@ -708,7 +766,7 @@ $('sheet-body').addEventListener('click', e => {
     case 'retry': if (it) loadItem(it); break;
     case 'toggle': if (it) { it.visible = !it.visible; syncLayer(it); save(); compare(); } break;
     case 'split':
-      if (it) { it.expanded = !it.expanded; it.spot = null; syncLayer(it); save(); render(); }
+      if (it) { it.expanded = !it.expanded; it.spot = null; syncLayer(it); syncSightings(); save(); render(); sightingsHint(it); }
       break;
     case 'member': {
       // Tapping a species spotlights it and zooms there; tapping it again shows them all.
@@ -716,6 +774,7 @@ $('sheet-body').addEventListener('click', e => {
       if (!m) break;
       it.spot = it.spot === m.taxon.id ? null : m.taxon.id;
       syncLayer(it);
+      syncSightings();
       render();
       fitTo([it.spot == null ? it.feature : m.feature]);
       break;
@@ -725,6 +784,21 @@ $('sheet-body').addEventListener('click', e => {
     case 'fit-all': fitTo(shownItems().map(i => i.feature)); break;
     case 'clear': clearAll(); break;
   }
+});
+function sightingsHint(it) {
+  if (state.sightings && isSplit(it) && it.spot == null && it.members.length > SIGHTINGS_MAX_SPECIES) {
+    toast('Tap a species to see its sightings');
+  }
+}
+function setSightings(on) {
+  state.sightings = on;
+  $('sightings').setAttribute('aria-pressed', String(on));
+  try { localStorage.setItem(SIGHTINGS_KEY, on ? '1' : ''); } catch (e) { /* not remembered */ }
+  syncSightings();
+}
+$('sightings').addEventListener('click', () => {
+  setSightings(!state.sightings);
+  state.items.forEach(sightingsHint);
 });
 $('sheet-head').addEventListener('click', () => {
   const closed = $('sheet').classList.toggle('closed');
@@ -845,6 +919,7 @@ window.SpeciesMap = {
   }
 };
 
+try { setSightings(!!localStorage.getItem(SIGHTINGS_KEY)); } catch (e) { /* stays off */ }
 render();
 restore();
 if (native) native.checkForUpdate(false);

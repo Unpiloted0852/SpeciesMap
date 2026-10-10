@@ -18,6 +18,8 @@ Coffee: https://ko-fi.com/unpiloted0852
 - Add a genus, family or other group and the app combines the ranges of its 40 most-observed
   species. A group can also be broken out to show each of its species in its own colour; tap
   one to spotlight it.
+- **Sightings** overlays research-grade iNaturalist observations as dots in each species'
+  colour, for detail finer than the range model's roughly 45 km cells.
 - Hide a species with the eye button to compare the rest, tap a row to zoom to that range, or
   tap the map to see which of your species are expected at that spot.
 - Compare up to eight at once. The list is remembered between launches.
