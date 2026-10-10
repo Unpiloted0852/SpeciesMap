@@ -3,7 +3,7 @@
 An Android app that shows where the ranges of two or more species overlap. Search for species
 by common or scientific name, and the map highlights the area where all of them are expected.
 
-<img src="screenshots/start.png" width="270"> <img src="screenshots/shared-range.png" width="270">
+<img src="screenshots/overview.png" width="600" alt="Left: the shared range of monarch and common milkweed. Right: sightings of banana slug species near Santa Cruz.">
 
 **[Download the latest APK](https://github.com/Unpiloted0852/SpeciesMap/releases/latest)**
 
