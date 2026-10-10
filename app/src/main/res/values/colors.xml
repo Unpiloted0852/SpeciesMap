@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Matches the page's surface colour so the system bars blend into it. -->
+    <!-- Matches the page's surface colour so the system bars blend into it (dark is true black). -->
     <color name="surface">#FFFDF8</color>
     <color name="accent">#1F6F50</color>
     <color name="ic_launcher_background">#16382C</color>

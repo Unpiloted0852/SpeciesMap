@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>SpeciesMap</title>
+<script>
+  // Set before first paint so a dark start never flashes light.
+  (function () {
+    var choice = 'system';
+    try { choice = localStorage.getItem('speciesmap.theme') || 'system'; } catch (e) { /* default */ }
+    var dark = choice === 'dark' || (choice === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  })();
+</script>
 <link rel="stylesheet" href="lib/maplibre-gl.css">
 <style>
   :root {
@@ -21,23 +30,27 @@
     --bad: #a8321f;
     --shadow: 0 6px 24px rgba(28, 36, 32, .16), 0 1px 3px rgba(28, 36, 32, .10);
     --peek: 60px;
+    --edge: transparent;
+    color-scheme: light;
     --serif: "Noto Serif", Georgia, serif;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0f1513;
-      --surface: #18201d;
-      --surface-2: #212b27;
-      --ink: #e9efe9;
-      --muted: #9aa8a0;
-      --line: #2c3833;
-      --accent: #58c39a;
-      --accent-ink: #06241a;
-      --shared-line: #fff3c4;
-      --warn: #e0a659;
-      --bad: #f08a78;
-      --shadow: 0 6px 24px rgba(0, 0, 0, .5), 0 1px 3px rgba(0, 0, 0, .4);
-    }
+  /* Dark is true black for OLED screens: surfaces are #000 and are told apart by a hairline
+     border instead of a shadow. */
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #000000;
+    --surface: #000000;
+    --surface-2: #171c1a;
+    --ink: #e9efe9;
+    --muted: #9aa8a0;
+    --line: #2a322e;
+    --accent: #58c39a;
+    --accent-ink: #06241a;
+    --shared-line: #fff3c4;
+    --warn: #e0a659;
+    --bad: #f08a78;
+    --shadow: none;
+    --edge: #2a322e;
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -60,9 +73,12 @@
   .maplibregl-ctrl-bottom-right { bottom: var(--peek); }
   body.searching .maplibregl-ctrl-bottom-right { bottom: 0; } /* the sheet is hidden while searching */
   .maplibregl-ctrl-attrib { font-size: 11px; }
+  [data-theme="dark"] .maplibregl-ctrl-attrib { background: #000; color: var(--muted); border: 1px solid var(--edge); }
+  [data-theme="dark"] .maplibregl-ctrl-attrib a { color: var(--ink); }
+  [data-theme="dark"] .maplibregl-ctrl-attrib-button { filter: invert(1); }
   .maplibregl-popup-content {
     background: var(--surface); color: var(--ink); border-radius: 12px; padding: 10px 12px;
-    box-shadow: var(--shadow); font: inherit; font-size: 13px; min-width: 150px;
+    box-shadow: var(--shadow); border: 1px solid var(--edge); font: inherit; font-size: 13px; min-width: 150px;
   }
   .maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: var(--surface); }
   .here-title { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
@@ -76,7 +92,7 @@
     max-width: 520px; display: flex; flex-direction: column; gap: 8px; pointer-events: none;
   }
   #top > * { pointer-events: auto; }
-  #search { background: var(--surface); border-radius: 26px; box-shadow: var(--shadow); overflow: hidden; }
+  #search { background: var(--surface); border-radius: 26px; box-shadow: var(--shadow); border: 1px solid var(--edge); overflow: hidden; }
   #search-row { display: flex; align-items: center; height: 52px; padding: 0 6px 0 16px; gap: 10px; }
   #search-row > svg { color: var(--muted); }
   #q {
@@ -110,7 +126,7 @@
   #update[disabled] { opacity: .85; }
   #sightings {
     align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 14px 0 10px;
-    border-radius: 20px; background: var(--surface); color: var(--ink); font-weight: 600; font-size: 14px; box-shadow: var(--shadow);
+    border-radius: 20px; background: var(--surface); color: var(--ink); font-weight: 600; font-size: 14px; box-shadow: var(--shadow); border: 1px solid var(--edge);
   }
   #sightings svg { width: 20px; height: 20px; }
   #sightings[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
@@ -120,7 +136,7 @@
   /* ── Sheet ── */
   #sheet {
     position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; max-width: 520px;
-    background: var(--surface); border-radius: 20px 20px 0 0; box-shadow: var(--shadow);
+    background: var(--surface); border-radius: 20px 20px 0 0; box-shadow: var(--shadow); border: 1px solid var(--edge); border-bottom: 0;
     display: flex; flex-direction: column; max-height: 58%;
     transition: transform .2s ease;
   }
@@ -181,6 +197,11 @@
   #about-card h2 { font-size: 20px; }
   #about-card p { margin-top: 10px; font-size: 14px; color: var(--muted); }
   #about-card p b { color: var(--ink); }
+  #about-card { border: 1px solid var(--edge); }
+  .setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; font-size: 14px; font-weight: 600; }
+  .seg { display: flex; padding: 3px; border-radius: 22px; background: var(--surface-2); }
+  .seg button { min-height: 38px; padding: 0 14px; border-radius: 19px; font-size: 14px; font-weight: 600; color: var(--muted); }
+  .seg button[aria-checked="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
   #version { font-size: 13px; color: var(--muted); }
   @media (min-width: 700px) {
     #about { align-items: center; }
@@ -193,7 +214,7 @@
   #toast {
     position: absolute; left: 50%; bottom: calc(var(--peek) + 16px); transform: translateX(-50%); z-index: 12;
     background: var(--ink); color: var(--surface); padding: 10px 16px; border-radius: 12px; font-size: 14px;
-    max-width: calc(100% - 32px); opacity: 0; pointer-events: none; transition: opacity .2s;
+    max-width: calc(100% - 32px); border: 1px solid var(--edge); opacity: 0; pointer-events: none; transition: opacity .2s;
   }
   #toast.show { opacity: 1; }
 </style>
@@ -258,6 +279,14 @@
       <a href="https://www.openmaptiles.org" target="_blank" rel="noopener">OpenMapTiles</a> and
       <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors.
       Not affiliated with iNaturalist.</p>
+    <div class="setting">
+      <span id="theme-label">Theme</span>
+      <div class="seg" role="radiogroup" aria-labelledby="theme-label">
+        <button role="radio" data-theme-choice="system">System</button>
+        <button role="radio" data-theme-choice="light">Light</button>
+        <button role="radio" data-theme-choice="dark">Dark</button>
+      </div>
+    </div>
     <div class="actions">
       <a class="btn primary" href="https://ko-fi.com/unpiloted0852" target="_blank" rel="noopener"><svg class="i"><use href="#i-heart"/></svg>Buy me a coffee</a>
       <a class="btn" href="https://github.com/Unpiloted0852/SpeciesMap" target="_blank" rel="noopener">Source on GitHub</a>
@@ -295,7 +324,12 @@ const EMPTY = { type: 'FeatureCollection', features: [] };
 
 const $ = id => document.getElementById(id);
 const native = window.Android || null;
+const THEME_KEY = 'speciesmap.theme';
 const darkQuery = matchMedia('(prefers-color-scheme: dark)');
+let themeChoice = 'system'; // 'system' | 'light' | 'dark'
+try { themeChoice = localStorage.getItem(THEME_KEY) || 'system'; } catch (e) { /* default */ }
+const wantsDark = () => themeChoice === 'dark' || (themeChoice === 'system' && darkQuery.matches);
+let dark = wantsDark();
 
 const state = { items: [], shared: null, sharedKm2: 0, sharedFailed: false, comparing: false, sightings: false };
 let styleReady = false;
@@ -342,7 +376,7 @@ function toTaxon(t) {
 /* ── Map ── */
 const map = new maplibregl.Map({
   container: 'map',
-  style: darkQuery.matches ? BASEMAP.dark : BASEMAP.light,
+  style: dark ? BASEMAP.dark : BASEMAP.light,
   center: [0, 25], zoom: 1.2, attributionControl: false,
   dragRotate: false, pitchWithRotate: false
 });
@@ -353,25 +387,51 @@ map.addControl(new maplibregl.AttributionControl({
 }), 'bottom-right');
 map.on('style.load', () => { styleReady = true; rebuildLayers(); });
 map.on('error', e => console.warn('map', e && e.error));
-darkQuery.addEventListener('change', () => {
-  styleReady = false;
-  map.setStyle(darkQuery.matches ? BASEMAP.dark : BASEMAP.light);
-});
+darkQuery.addEventListener('change', applyTheme);
+function applyTheme() {
+  const was = dark;
+  dark = wantsDark();
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  document.querySelectorAll('[data-theme-choice]').forEach(b =>
+    b.setAttribute('aria-checked', String(b.dataset.themeChoice === themeChoice)));
+  if (native && native.setDarkTheme) native.setDarkTheme(dark); // system bars follow the page
+  if (dark !== was) {
+    styleReady = false;
+    map.setStyle(dark ? BASEMAP.dark : BASEMAP.light);
+  }
+}
+// The stock dark base map is dark grey; take both land and water to true black, told apart
+// by a thin coastline, with place names lifted so they stay readable.
+function blackenBasemap() {
+  const set = (layer, prop, value) => { if (map.getLayer(layer)) map.setPaintProperty(layer, prop, value); };
+  set('background', 'background-color', '#000000');
+  set('landcover_ice_shelf', 'fill-color', '#000000');
+  set('water', 'fill-color', '#000000');
+  set('water', 'fill-outline-color', '#33454c');
+  set('waterway', 'line-color', '#1b262a');
+  for (const l of map.getStyle().layers) {
+    if (l.type === 'symbol' && l.id.startsWith('place_')) set(l.id, 'text-color', '#8f9692');
+  }
+}
 
-// Ranges sit under the basemap's labels so place names stay readable.
+// Ranges sit above the base map's roads and borders but under its place names, so the names
+// stay readable: that is the first label layer after the last non-label one.
 function labelLayerId() {
-  const l = map.getStyle().layers.find(l => l.type === 'symbol');
-  return l ? l.id : undefined;
+  const layers = map.getStyle().layers;
+  let i = layers.length;
+  while (i > 0 && layers[i - 1].type === 'symbol') i--;
+  return i < layers.length ? layers[i].id : undefined;
 }
 function rebuildLayers() {
   if (!styleReady) return;
+  if (dark) blackenBasemap();
   if (!map.getSource('shared')) {
     const before = labelLayerId();
     map.addSource('shared', { type: 'geojson', data: state.shared || EMPTY });
     map.addLayer({ id: 'shared-fill', type: 'fill', source: 'shared',
       paint: { 'fill-color': '#f2b705', 'fill-opacity': 0.62 } }, before);
     map.addLayer({ id: 'shared-line', type: 'line', source: 'shared',
-      paint: { 'line-color': darkQuery.matches ? '#fff3c4' : '#3a2c00', 'line-width': 1.6 } }, before);
+      paint: { 'line-color': dark ? '#fff3c4' : '#3a2c00', 'line-width': 1.6 } }, before);
   }
   state.items.forEach(syncLayer);
   sightingLayers.clear(); // the new style dropped them
@@ -388,29 +448,32 @@ function syncLayer(it) {
   if (!present) {
     map.addSource(id, { type: 'geojson', data: it.feature });
     map.addLayer({ id: id + '-fill', type: 'fill', source: id,
-      paint: { 'fill-color': it.color, 'fill-opacity': 0.28 } }, 'shared-fill');
+      paint: { 'fill-color': it.color, 'fill-opacity': dark ? 0.42 : 0.28 } }, 'shared-fill');
     map.addLayer({ id: id + '-line', type: 'line', source: id,
       paint: { 'line-color': it.color, 'line-width': 1.2, 'line-opacity': 0.9 } }, 'shared-fill');
   }
   // A group is drawn either as one combined range or, when expanded, as its separate species.
   const split = isSplit(it);
   const mid = 'members-' + it.key;
+  const spotlit = (on, off, all) => it.spot == null ? all : ['case', ['==', ['get', 'k'], it.spot], on, off];
+  const fillOpacity = spotlit(dark ? 0.6 : 0.5, dark ? 0.08 : 0.04, dark ? 0.45 : 0.3);
+  const lineOpacity = spotlit(1, 0.12, 0.9);
   if (split && !map.getSource(mid)) {
     map.addSource(mid, { type: 'geojson', data: turf.featureCollection(it.members.map(m =>
       ({ type: 'Feature', properties: { k: m.taxon.id, c: m.color }, geometry: m.feature.geometry }))) });
-    map.addLayer({ id: mid + '-fill', type: 'fill', source: mid, paint: { 'fill-color': ['get', 'c'] } }, 'shared-fill');
+    map.addLayer({ id: mid + '-fill', type: 'fill', source: mid,
+      paint: { 'fill-color': ['get', 'c'], 'fill-opacity': fillOpacity } }, 'shared-fill');
     map.addLayer({ id: mid + '-line', type: 'line', source: mid,
-      paint: { 'line-color': ['get', 'c'], 'line-width': 1.2 } }, 'shared-fill');
+      paint: { 'line-color': ['get', 'c'], 'line-width': 1.2, 'line-opacity': lineOpacity } }, 'shared-fill');
   }
   const show = on => on && it.visible ? 'visible' : 'none';
   map.setLayoutProperty(id + '-fill', 'visibility', show(!split));
   map.setLayoutProperty(id + '-line', 'visibility', show(!split));
   if (map.getSource(mid)) {
-    const spotlit = (on, off, all) => it.spot == null ? all : ['case', ['==', ['get', 'k'], it.spot], on, off];
     map.setLayoutProperty(mid + '-fill', 'visibility', show(split));
     map.setLayoutProperty(mid + '-line', 'visibility', show(split));
-    map.setPaintProperty(mid + '-fill', 'fill-opacity', spotlit(0.5, 0.04, 0.3));
-    map.setPaintProperty(mid + '-line', 'line-opacity', spotlit(1, 0.12, 0.9));
+    map.setPaintProperty(mid + '-fill', 'fill-opacity', fillOpacity);
+    map.setPaintProperty(mid + '-line', 'line-opacity', lineOpacity);
   }
 }
 function isSplit(it) { return it.expanded && it.members.length > 1; }
@@ -1026,6 +1089,14 @@ $('about-btn').addEventListener('click', () => setAbout(true));
 $('about-close').addEventListener('click', () => setAbout(false));
 $('about').addEventListener('click', e => { if (e.target === $('about')) setAbout(false); });
 
+document.querySelector('.seg').addEventListener('click', e => {
+  const b = e.target.closest('[data-theme-choice]');
+  if (!b) return;
+  themeChoice = b.dataset.themeChoice;
+  try { localStorage.setItem(THEME_KEY, themeChoice); } catch (e) { /* not remembered */ }
+  applyTheme();
+});
+
 let updateVersion = '';
 function showUpdate(text, busy) {
   const b = $('update');
@@ -1061,6 +1132,7 @@ window.SpeciesMap = {
 };
 
 try { setSightings(!!localStorage.getItem(SIGHTINGS_KEY)); } catch (e) { /* stays off */ }
+applyTheme();
 render();
 restore();
 if (native) native.checkForUpdate(false);

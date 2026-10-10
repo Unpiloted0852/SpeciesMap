@@ -4,11 +4,14 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
+import android.graphics.Color;
 import android.graphics.Insets;
 import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
+import android.view.Window;
 import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -20,8 +23,9 @@ import org.json.JSONObject;
 
 /**
  * Hosts the app's single page (assets/index.html) in a WebView. The page does the work; this
- * class keeps it clear of the system bars, sends links to the browser, routes the back button
- * and exposes the self-updater to the page as {@code window.Android}.
+ * class keeps it clear of the system bars and matches them to the page's theme, sends links
+ * to the browser, routes the back button and exposes the self-updater to the page as
+ * {@code window.Android}.
  */
 public class MainActivity extends Activity {
     private static final String PAGE = "file:///android_asset/index.html";
@@ -99,6 +103,28 @@ public class MainActivity extends Activity {
         webView.evaluateJavascript("window.SpeciesMap && SpeciesMap." + function + "(" + arg + ")", null);
     }
 
+    @SuppressWarnings("deprecation")
+    private void applyBarTheme(boolean dark) {
+        int surface = dark ? Color.BLACK : 0xFFFFFDF8; // the page's surface colour
+        Window window = getWindow();
+        // Android 15+ draws edge to edge, so the bars show this background; earlier versions
+        // use the bar colours.
+        findViewById(R.id.root).setBackgroundColor(surface);
+        window.setStatusBarColor(surface);
+        window.setNavigationBarColor(surface);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowInsetsController controller = window.getInsetsController();
+            int lightBars = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                    | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+            if (controller != null) controller.setSystemBarsAppearance(dark ? 0 : lightBars, lightBars);
+        } else {
+            View decor = window.getDecorView();
+            int lightBars = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            int flags = decor.getSystemUiVisibility();
+            decor.setSystemUiVisibility(dark ? flags & ~lightBars : flags | lightBars);
+        }
+    }
+
     @Override
     protected void onDestroy() {
         updater.close();
@@ -124,6 +150,12 @@ public class MainActivity extends Activity {
                     callPage("onNoUpdate", failed);
                 }
             });
+        }
+
+        /** The page's theme can differ from the system's, so it sets the bar colours itself. */
+        @JavascriptInterface
+        public void setDarkTheme(boolean dark) {
+            runOnUiThread(() -> applyBarTheme(dark));
         }
 
         @JavascriptInterface
