@@ -474,7 +474,7 @@ function syncSightings() {
     if (sightingLayers.has(id)) continue;
     map.addSource(id, { type: 'raster', tileSize: 512, tiles: [
       `${API}/colored_heatmap/{z}/{x}/{y}.png?taxon_id=${taxon.id}&quality_grade=research&color=%23${color.slice(1)}`
-      + `&width=8&line_width=1&line_color=%23ffffff&comp_op=src-over&${query}`] });
+      + `&width=4&line_width=0.6&line_color=%23ffffff&comp_op=src-over&${query}`] });
     map.addLayer({ id, type: 'raster', source: id }, labelLayerId());
     sightingLayers.add(id);
   }
