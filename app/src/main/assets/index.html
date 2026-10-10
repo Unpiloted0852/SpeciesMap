@@ -58,6 +58,7 @@
 
   #map { position: absolute; inset: 0; }
   .maplibregl-ctrl-bottom-right { bottom: var(--peek); }
+  body.searching .maplibregl-ctrl-bottom-right { bottom: 0; } /* the sheet is hidden while searching */
   .maplibregl-ctrl-attrib { font-size: 11px; }
   .maplibregl-popup-content {
     background: var(--surface); color: var(--ink); border-radius: 12px; padding: 10px 12px;
