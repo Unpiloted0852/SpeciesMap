@@ -133,11 +133,23 @@
   .chip { min-height: 40px; padding: 8px 14px; border-radius: 20px; border: 1.5px solid var(--line); font-size: 14px; font-weight: 500; text-align: left; }
   .chip:active { background: var(--surface-2); }
 
-  .row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
-  .row:first-child { border-top: 0; }
+  .item { border-top: 1px solid var(--line); }
+  .item:first-child { border-top: 0; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+  .split { display: flex; align-items: center; gap: 4px; min-height: 40px; margin: -4px 0 6px 56px; font-size: 13.5px; font-weight: 600; color: var(--accent); }
+  .split svg { width: 18px; height: 18px; transition: transform .2s; }
+  .split[aria-expanded="true"] svg { transform: rotate(180deg); }
+  .members { margin: 0 0 10px 56px; border-left: 2px solid var(--line); }
+  .member { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 4px 8px 4px 12px; text-align: left; border-radius: 0 10px 10px 0; }
+  .member:active, .member.spot { background: var(--surface-2); }
+  .member .dot { width: 14px; height: 14px; }
+  .m-name { flex: 1; min-width: 0; font-size: 14px; line-height: 1.25; }
+  .m-name b { font-weight: 600; }
+  .m-name .sci { color: var(--muted); font-size: 13px; }
+  .m-area { font-size: 12px; color: var(--muted); white-space: nowrap; }
   .row-main { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; text-align: left; min-height: 48px; }
   .row .thumb { border: 3px solid var(--c); width: 44px; height: 44px; border-radius: 50%; }
-  .row.hidden .row-main { opacity: .45; }
+  .item.hidden .row-main, .item.hidden .members { opacity: .45; }
   .row .stat { font-size: 12.5px; color: var(--muted); white-space: normal; }
   .row .stat.warn { color: var(--warn); }
   .row .stat.bad { color: var(--bad); }
@@ -223,7 +235,7 @@
       <button class="icon-btn" id="about-close" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
     </header>
     <p>Add two or more species to see where their ranges overlap. Add a genus or family and the app
-      combines the ranges of its 40 most-observed species.</p>
+      combines the ranges of its 40 most-observed species; you can then show those species separately.</p>
     <p><b>About the ranges.</b> They are predictions from iNaturalist's geomodel, built from where people
       have recorded each species. They are estimates, not surveyed boundaries, and less-observed species
       may have no range at all.</p>
@@ -359,20 +371,60 @@ function syncLayer(it) {
     map.addLayer({ id: id + '-line', type: 'line', source: id,
       paint: { 'line-color': it.color, 'line-width': 1.2, 'line-opacity': 0.9 } }, 'shared-fill');
   }
-  const vis = it.visible ? 'visible' : 'none';
-  map.setLayoutProperty(id + '-fill', 'visibility', vis);
-  map.setLayoutProperty(id + '-line', 'visibility', vis);
+  // A group is drawn either as one combined range or, when expanded, as its separate species.
+  const split = isSplit(it);
+  const mid = 'members-' + it.key;
+  if (split && !map.getSource(mid)) {
+    map.addSource(mid, { type: 'geojson', data: turf.featureCollection(it.members.map(m =>
+      ({ type: 'Feature', properties: { k: m.taxon.id, c: m.color }, geometry: m.feature.geometry }))) });
+    map.addLayer({ id: mid + '-fill', type: 'fill', source: mid, paint: { 'fill-color': ['get', 'c'] } }, 'shared-fill');
+    map.addLayer({ id: mid + '-line', type: 'line', source: mid,
+      paint: { 'line-color': ['get', 'c'], 'line-width': 1.2 } }, 'shared-fill');
+  }
+  const show = on => on && it.visible ? 'visible' : 'none';
+  map.setLayoutProperty(id + '-fill', 'visibility', show(!split));
+  map.setLayoutProperty(id + '-line', 'visibility', show(!split));
+  if (map.getSource(mid)) {
+    const spotlit = (on, off, all) => it.spot == null ? all : ['case', ['==', ['get', 'k'], it.spot], on, off];
+    map.setLayoutProperty(mid + '-fill', 'visibility', show(split));
+    map.setLayoutProperty(mid + '-line', 'visibility', show(split));
+    map.setPaintProperty(mid + '-fill', 'fill-opacity', spotlit(0.5, 0.04, 0.3));
+    map.setPaintProperty(mid + '-line', 'line-opacity', spotlit(1, 0.12, 0.9));
+  }
 }
+function isSplit(it) { return it.expanded && it.members.length > 1; }
 function dropLayer(it) {
   if (!styleReady) return;
-  const id = 'range-' + it.key;
-  for (const l of [id + '-fill', id + '-line']) if (map.getLayer(l)) map.removeLayer(l);
-  if (map.getSource(id)) map.removeSource(id);
+  for (const id of ['range-' + it.key, 'members-' + it.key]) {
+    for (const l of [id + '-fill', id + '-line']) if (map.getLayer(l)) map.removeLayer(l);
+    if (map.getSource(id)) map.removeSource(id);
+  }
+}
+// Bounding box that copes with ranges crossing the antimeridian (Alaska to Siberia, say): the
+// box runs between the two ends of the widest empty stretch of longitude, so east may exceed 180.
+function bounds(features) {
+  const lons = [];
+  let s = 90, n = -90;
+  turf.coordEach(turf.featureCollection(features), c => {
+    lons.push(c[0]);
+    if (c[1] < s) s = c[1];
+    if (c[1] > n) n = c[1];
+  });
+  lons.sort((a, b) => a - b);
+  let w = lons[0], e = lons[lons.length - 1], gap = w + 360 - e;
+  for (let i = 1; i < lons.length; i++) {
+    if (lons[i] - lons[i - 1] > gap) {
+      gap = lons[i] - lons[i - 1];
+      w = lons[i];
+      e = lons[i - 1] + 360;
+    }
+  }
+  return [w, s, e, n];
 }
 function fitTo(features) {
   features = features.filter(Boolean);
   if (!features.length) return;
-  const [w, s, e, n] = turf.bbox(turf.featureCollection(features));
+  const [w, s, e, n] = bounds(features);
   const sheetH = $('sheet').getBoundingClientRect().height;
   const wide = innerWidth >= 700;
   map.fitBounds([[w, Math.max(s, -85)], [e, Math.min(n, 85)]], {
@@ -391,11 +443,17 @@ map.on('click', e => {
   if (!shown.length) return;
   const ll = e.lngLat.wrap();
   const pt = turf.point([ll.lng, ll.lat]);
-  const here = shown.filter(it => turf.booleanPointInPolygon(pt, it.feature));
+  const inside = feature => turf.booleanPointInPolygon(pt, feature);
+  const here = [];
+  for (const it of shown) {
+    if (isSplit(it)) it.members.forEach(m => inside(m.feature) && here.push({ color: m.color, taxon: m.taxon }));
+    else if (inside(it.feature)) here.push(it);
+  }
+  const single = shown.length === 1 && !isSplit(shown[0]);
   const body = here.length
-    ? '<div class="here-title">Expected here</div>' + here.map(it =>
-        `<div class="here-row"><span class="dot" style="background:${it.color}"></span>${esc(displayName(it.taxon))}</div>`).join('')
-    : `<div class="here-none">${shown.length === 1 ? 'Not' : 'None of them are'} expected here</div>`;
+    ? '<div class="here-title">Expected here</div>' + here.map(x =>
+        `<div class="here-row"><span class="dot" style="background:${x.color}"></span>${esc(displayName(x.taxon))}</div>`).join('')
+    : `<div class="here-none">${single ? 'Not' : 'None of them are'} expected here</div>`;
   if (herePopup) herePopup.remove();
   herePopup = new maplibregl.Popup({ anchor: 'bottom', closeButton: false, maxWidth: '260px' })
     .setLngLat(e.lngLat)
@@ -445,19 +503,28 @@ async function fetchRange(taxon, onProgress) {
 
   onProgress('Finding its species…');
   const counts = await getJson(`${API}/observations/species_counts?taxon_id=${taxon.id}&per_page=${GROUP_LIMIT}`);
-  const ids = (counts.results || []).map(r => r.taxon.id);
+  const species = (counts.results || []).map(r => toTaxon(r.taxon));
   let done = 0;
-  const parts = (await pool(ids, 6, async id => {
-    const f = await fetchModel(id).catch(() => null);
-    onProgress(`Loading species ${++done} of ${ids.length}…`);
-    return f;
+  const members = (await pool(species, 6, async taxon => {
+    const feature = await fetchModel(taxon.id).catch(() => null);
+    onProgress(`Loading species ${++done} of ${species.length}…`);
+    return feature && { taxon, feature, km2: turf.area(feature) / 1e6 };
   })).filter(Boolean);
-  if (!parts.length) return { feature: null };
+  if (!members.length) return { feature: null };
   onProgress('Combining ranges…');
   await paint();
-  const feature = parts.length === 1 ? parts[0] : turf.union(turf.featureCollection(parts));
-  const most = counts.total_results > ids.length ? ' most-observed' : '';
-  return { feature, note: `Combined from its ${parts.length}${most} species` };
+  const feature = members.length === 1
+    ? members[0].feature
+    : turf.union(turf.featureCollection(members.map(m => m.feature)));
+  // Largest first, so smaller ranges are drawn on top of the ones that contain them.
+  members.sort((x, y) => y.km2 - x.km2).forEach((m, i) => { m.color = memberColor(i); });
+  const most = counts.total_results > species.length ? ' most-observed' : '';
+  return { feature, members, note: `Combined from its ${members.length}${most} species` };
+}
+// A group can hold up to GROUP_LIMIT species, more than any fixed palette: step round the hue
+// wheel by the golden angle and vary lightness so neighbours in the list stay distinct.
+function memberColor(i) {
+  return `hsl(${Math.round(i * 137.508) % 360}, ${i % 2 ? 72 : 60}%, ${[44, 56, 36][i % 3]}%)`;
 }
 // Lets the browser draw a status change before a long synchronous geometry step.
 function paint() { return new Promise(r => setTimeout(r, 40)); }
@@ -467,7 +534,8 @@ function addTaxon(taxon, opts = {}) {
   if (state.items.some(i => i.taxon.id === taxon.id)) { toast(`${displayName(taxon)} is already on the map`); return null; }
   if (state.items.length >= PALETTE.length) { toast(`You can compare up to ${PALETTE.length} at once`); return null; }
   const color = PALETTE.find(c => !state.items.some(i => i.color === c));
-  const it = { key: taxon.id, taxon, color, status: 'loading', progress: '', visible: opts.visible !== false, feature: null, km2: 0, note: '' };
+  const it = { key: taxon.id, taxon, color, status: 'loading', progress: '', visible: opts.visible !== false, feature: null, km2: 0, note: '',
+    members: [], expanded: opts.expanded === true, spot: null };
   state.items.push(it);
   save();
   loadItem(it);
@@ -480,6 +548,7 @@ async function loadItem(it) {
     const res = await fetchRange(it.taxon, msg => { it.progress = msg; render(); });
     if (!state.items.includes(it)) return;
     it.note = res.note || '';
+    it.members = res.members || [];
     if (res.feature) {
       it.feature = res.feature;
       it.km2 = turf.area(res.feature) / 1e6;
@@ -513,13 +582,13 @@ function clearAll() {
 }
 function save() {
   try {
-    localStorage.setItem(STORE_KEY, JSON.stringify(state.items.map(i => ({ taxon: i.taxon, visible: i.visible }))));
+    localStorage.setItem(STORE_KEY, JSON.stringify(state.items.map(i => ({ taxon: i.taxon, visible: i.visible, expanded: i.expanded }))));
   } catch (e) { /* storage unavailable: the list just won't persist */ }
 }
 function restore() {
   let saved = [];
   try { saved = JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch (e) { saved = []; }
-  saved.forEach(s => s && s.taxon && s.taxon.id && addTaxon(s.taxon, { visible: s.visible }));
+  saved.forEach(s => s && s.taxon && s.taxon.id && addTaxon(s.taxon, { visible: s.visible, expanded: s.expanded }));
 }
 
 let compareRun = 0;
@@ -594,7 +663,19 @@ function render() {
       : it.status === 'ok'
         ? `<button class="icon-btn" data-act="toggle" data-key="${it.key}" aria-pressed="${it.visible}" aria-label="${it.visible ? 'Hide' : 'Show'} ${esc(displayName(t))}">${icon(it.visible ? 'eye' : 'eye-off')}</button>`
         : '';
-    return `<div class="row${it.visible ? '' : ' hidden'}" style="--c:${it.color}">
+    let breakdown = '';
+    if (it.status === 'ok' && it.members.length > 1) {
+      const open = isSplit(it);
+      breakdown = `<button class="split" data-act="split" data-key="${it.key}" aria-expanded="${open}">
+          ${open ? 'Show as one combined range' : `Show its ${it.members.length} species separately`}${icon('chev')}</button>`;
+      if (open) breakdown += `<div class="members">${it.members.map(m => `
+          <button class="member${it.spot === m.taxon.id ? ' spot' : ''}" data-act="member" data-key="${it.key}" data-m="${m.taxon.id}" aria-pressed="${it.spot === m.taxon.id}">
+            <span class="dot" style="background:${m.color}"></span>
+            <span class="m-name"><b>${esc(displayName(m.taxon))}</b>${m.taxon.common ? ` <span class="sci">${esc(m.taxon.name)}</span>` : ''}</span>
+            <span class="m-area">${fmtArea(m.km2)}</span>
+          </button>`).join('')}</div>`;
+    }
+    return `<div class="item${it.visible ? '' : ' hidden'}" style="--c:${it.color}"><div class="row">
       <button class="row-main" data-act="focus" data-key="${it.key}">
         ${t.photo ? `<img class="thumb" src="${esc(t.photo)}" alt="">` : '<div class="thumb"></div>'}
         <div class="names">
@@ -605,7 +686,7 @@ function render() {
       </button>
       ${second}
       <button class="icon-btn" data-act="remove" data-key="${it.key}" aria-label="Remove ${esc(displayName(t))}">${icon('x')}</button>
-    </div>`;
+    </div>${breakdown}</div>`;
   }).join('');
 
   const canFit = shown.length > 0;
@@ -626,6 +707,19 @@ $('sheet-body').addEventListener('click', e => {
     case 'remove': if (it) removeItem(it); break;
     case 'retry': if (it) loadItem(it); break;
     case 'toggle': if (it) { it.visible = !it.visible; syncLayer(it); save(); compare(); } break;
+    case 'split':
+      if (it) { it.expanded = !it.expanded; it.spot = null; syncLayer(it); save(); render(); }
+      break;
+    case 'member': {
+      // Tapping a species spotlights it and zooms there; tapping it again shows them all.
+      const m = it && it.members.find(m => String(m.taxon.id) === b.dataset.m);
+      if (!m) break;
+      it.spot = it.spot === m.taxon.id ? null : m.taxon.id;
+      syncLayer(it);
+      render();
+      fitTo([it.spot == null ? it.feature : m.feature]);
+      break;
+    }
     case 'focus': if (it && it.status === 'ok' && it.visible) fitTo([it.feature]); break;
     case 'fit-shared': fitTo([state.shared]); break;
     case 'fit-all': fitTo(shownItems().map(i => i.feature)); break;

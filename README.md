@@ -16,7 +16,8 @@ Coffee: https://ko-fi.com/unpiloted0852
 - Each species' range is drawn in its own colour; the area they all share is drawn in gold, with
   its size and the share of each species' range it covers.
 - Add a genus, family or other group and the app combines the ranges of its 40 most-observed
-  species.
+  species. A group can also be broken out to show each of its species in its own colour; tap
+  one to spotlight it.
 - Hide a species with the eye button to compare the rest, tap a row to zoom to that range, or
   tap the map to see which of your species are expected at that spot.
 - Compare up to eight at once. The list is remembered between launches.
