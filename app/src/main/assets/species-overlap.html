@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Species Range Overlap</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+        body {
+          font-family: system-ui, sans-serif;
+          background: #f5f5f0;
+          color: #1a1a1a;
+          height: 100vh;
+          height: 100dvh;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
+        }
+
+        /* ── Header ── */
+        #header {
+          background: #2d6a4f;
+          color: #fff;
+          padding: 12px 16px 10px;
+          padding-top: calc(12px + env(safe-area-inset-top));
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-shrink: 0;
+        }
+        #header h1 { font-size: 16px; font-weight: 700; letter-spacing: -0.01em; }
+
+        #toggle-panel-btn {
+          background: rgba(255,255,255,0.18);
+          border: none;
+          color: #fff;
+          border-radius: 8px;
+          padding: 7px 13px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          min-height: 36px;
+          min-width: 36px;
+        }
+        #toggle-panel-btn:active { background: rgba(255,255,255,0.3); }
+
+        /* ── Input panel (collapsible) ── */
+        #panel {
+          background: #fff;
+          border-bottom: 1px solid #e0e0d8;
+          padding: 12px 16px;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          flex-shrink: 0;
+          overflow: hidden;
+          transition: max-height 0.25s ease, padding 0.25s ease, opacity 0.2s ease;
+          max-height: 220px;
+          opacity: 1;
+        }
+        #panel.collapsed {
+          max-height: 0;
+          padding-top: 0;
+          padding-bottom: 0;
+          opacity: 0;
+        }
+
+        #species-input label {
+          display: block;
+          font-size: 11px;
+          font-weight: 600;
+          color: #555;
+          margin-bottom: 6px;
+          letter-spacing: 0.05em;
+          text-transform: uppercase;
+        }
+        #species-input textarea {
+          width: 100%;
+          height: 80px;
+          border: 1.5px solid #d8d8d0;
+          border-radius: 10px;
+          padding: 10px 12px;
+          font-size: 15px;
+          font-family: inherit;
+          resize: none;
+          background: #fafaf8;
+          color: #1a1a1a;
+          -webkit-appearance: none;
+        }
+        #species-input textarea:focus {
+          outline: none;
+          border-color: #2d6a4f;
+          box-shadow: 0 0 0 3px rgba(45,106,79,0.15);
+        }
+
+        #btn-row { display: flex; gap: 8px; }
+        button {
+          padding: 0 18px;
+          height: 46px;
+          border-radius: 10px;
+          font-size: 15px;
+          font-weight: 600;
+          cursor: pointer;
+          border: none;
+          transition: opacity 0.15s;
+          touch-action: manipulation;
+        }
+        button:active { opacity: 0.75; }
+        #search-btn { background: #2d6a4f; color: #fff; flex: 1; }
+        #search-btn:disabled { background: #95b5a5; }
+        #clear-btn { background: #f0f0e8; color: #444; min-width: 72px; }
+
+        /* ── Status bar ── */
+        #status-bar {
+          background: #f0f4f1;
+          border-bottom: 1px solid #d8e4db;
+          padding: 7px 16px;
+          font-size: 12px;
+          color: #3a5a47;
+          min-height: 30px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-shrink: 0;
+        }
+        .spinner {
+          width: 12px; height: 12px;
+          border: 2px solid #a8c5b5;
+          border-top-color: #2d6a4f;
+          border-radius: 50%;
+          animation: spin 0.7s linear infinite;
+          flex-shrink: 0;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Legend ── */
+        #legend-bar {
+          background: #fff;
+          border-bottom: 1px solid #e0e0d8;
+          padding: 6px 16px;
+          display: flex;
+          gap: 12px;
+          align-items: center;
+          font-size: 12px;
+          color: #555;
+          min-height: 32px;
+          overflow-x: auto;
+          flex-shrink: 0;
+          -webkit-overflow-scrolling: touch;
+          white-space: nowrap;
+        }
+        #legend-bar:empty { display: none; }
+        .legend-item { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; }
+        .legend-swatch { width: 24px; height: 9px; border-radius: 2px; opacity: 0.8; }
+        .rbadge { font-size: 10px; background: #f0f4f1; color: #3a5a47; border-radius: 3px; padding: 1px 4px; }
+
+        /* ── Map ── */
+        #map-wrap { position: relative; flex: 1; overflow: hidden; }
+        #map { width: 100%; height: 100%; }
+
+        /* ── Results bottom sheet ── */
+        #results-panel {
+          position: absolute;
+          bottom: 0; left: 0; right: 0;
+          z-index: 1000;
+          background: #fff;
+          border-radius: 16px 16px 0 0;
+          box-shadow: 0 -4px 24px rgba(0,0,0,0.13);
+          padding: 0 16px 16px;
+          padding-bottom: calc(16px + env(safe-area-inset-bottom));
+          font-size: 14px;
+          display: none;
+          max-height: 55vh;
+          overflow-y: auto;
+          -webkit-overflow-scrolling: touch;
+        }
+
+        /* drag handle */
+        #results-panel::before {
+          content: '';
+          display: block;
+          width: 36px;
+          height: 4px;
+          background: #ddd;
+          border-radius: 2px;
+          margin: 10px auto 12px;
+        }
+
+        #results-panel h3 {
+          font-size: 11px;
+          font-weight: 700;
+          color: #555;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          margin-bottom: 8px;
+        }
+        .result-row { padding: 8px 0; border-bottom: 1px solid #f0f0e8; }
+        .result-row:last-of-type { border-bottom: none; }
+        .rname { font-style: italic; color: #1a1a1a; font-size: 14px; font-weight: 500; }
+        .rcommon { color: #555; font-size: 12px; margin-top: 2px; }
+        .rinput { color: #aaa; font-size: 11px; }
+        .rstatus { font-size: 12px; margin-top: 3px; }
+        .rstatus.ok { color: #2d6a4f; }
+        .rstatus.warn { color: #a07030; }
+        .rstatus.err { color: #a03a20; }
+        .overlap-note {
+          margin-top: 10px;
+          padding: 10px 12px;
+          background: #f0f7f2;
+          border-radius: 8px;
+          color: #1b4332;
+          font-size: 13px;
+          line-height: 1.5;
+        }
+        .overlap-note.none { background: #fdf3f0; color: #7a2010; }
+
+        /* close button for results panel */
+        #close-results {
+          position: absolute;
+          top: 10px; right: 14px;
+          background: #f0f0e8;
+          border: none;
+          border-radius: 50%;
+          width: 28px; height: 28px;
+          font-size: 16px;
+          color: #666;
+          cursor: pointer;
+          display: flex; align-items: center; justify-content: center;
+          padding: 0;
+          min-height: unset;
+        }
+    </style>
+</head>
+<body>
+
+<div id="header">
+    <h1>🌿 Species Overlap</h1>
+    <button id="toggle-panel-btn" onclick="togglePanel()">Search ▲</button>
+</div>
+
+<div id="panel">
+    <div id="species-input">
+        <label>Species — one per line</label>
+        <textarea id="taxa" placeholder="e.g.
+Acer rubrum
+Trillium grandiflorum
+Eastern chipmunk"></textarea>
+    </div>
+    <div id="btn-row">
+        <button id="search-btn" onclick="runSearch()">Find Overlap</button>
+        <button id="clear-btn" onclick="clearAll()">Clear</button>
+    </div>
+</div>
+
+<div id="status-bar">Enter species above and tap Find Overlap.</div>
+<div id="legend-bar"></div>
+
+<div id="map-wrap">
+    <div id="map"></div>
+    <div id="results-panel">
+        <button id="close-results" onclick="closeResults()">✕</button>
+    </div>
+</div>
+
+<script>
+    const COLORS = [
+      '#e63946','#2a9d8f','#e9c46a','#6a4c93','#f4a261',
+      '#457b9d','#90be6d','#f72585','#3a86ff','#fb8500'
+    ];
+
+    const map = L.map('map', { zoomControl: true }).setView([30, 0], 2);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      attribution: '© OpenStreetMap © CARTO | Ranges © iNaturalist CC-BY-4.0',
+      subdomains: 'abcd', maxZoom: 19
+    }).addTo(map);
+
+    let layerGroups = [];
+    let overlapLayer = null;
+    let panelOpen = true;
+
+    function togglePanel() {
+      panelOpen = !panelOpen;
+      document.getElementById('panel').classList.toggle('collapsed', !panelOpen);
+      document.getElementById('toggle-panel-btn').textContent = panelOpen ? 'Search ▲' : 'Search ▽';
+      setTimeout(() => map.invalidateSize(), 260);
+    }
+
+    function closeResults() {
+      document.getElementById('results-panel').style.display = 'none';
+    }
+
+    function setStatus(msg, loading=false) {
+      document.getElementById('status-bar').innerHTML = loading
+        ? `<div class="spinner"></div><span>${msg}</span>` : msg;
+    }
+
+    function updateLegend(entries) {
+      const bar = document.getElementById('legend-bar');
+      if (!entries.length) { bar.innerHTML = ''; return; }
+      bar.innerHTML = entries.map(e => `
+        <div class="legend-item">
+          <div class="legend-swatch" style="background:${e.color}"></div>
+          <span style="font-style:italic">${e.label}</span>
+          ${e.rank && e.rank !== 'species' ? `<span class="rbadge">${e.rank}</span>` : ''}
+        </div>`).join('') + (entries.length > 1 ? `
+        <div class="legend-item" style="margin-left:8px">
+          <div class="legend-swatch" style="background:#2d6a4f;opacity:1;width:14px;height:14px;border-radius:3px"></div>
+          <span style="font-weight:600">Overlap</span>
+        </div>` : '');
+    }
+
+    async function resolveTaxon(name) {
+      const url = `https://api.inaturalist.org/v1/taxa/autocomplete?q=${encodeURIComponent(name)}&per_page=1`;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`Lookup failed for "${name}"`);
+      const data = await r.json();
+      if (!data.results || !data.results.length) throw new Error(`No taxon found for "${name}"`);
+      const t = data.results[0];
+      return { id: t.id, sciName: t.name, commonName: t.preferred_common_name || null, rank: t.rank };
+    }
+
+    async function fetchRangeMapDirect(taxonId) {
+      const url = `https://inaturalist-open-data.s3.amazonaws.com/geomodel/geojsons/latest/${taxonId}.geojson`;
+      const r = await fetch(url);
+      if (r.status === 403 || r.status === 404) return null;
+      if (!r.ok) throw new Error(`Range map fetch failed (${r.status})`);
+      return await r.json();
+    }
+
+    async function fetchChildSpecies(taxonId, limit=40) {
+      const url = `https://api.inaturalist.org/v1/observations/species_counts?taxon_id=${taxonId}&per_page=${limit}&order_by=count&order=desc`;
+      const r = await fetch(url);
+      if (!r.ok) return [];
+      const data = await r.json();
+      return (data.results || []).map(t => t.taxon.id);
+    }
+
+    async function fetchRangeMap(taxonId, rank, onProgress) {
+      const direct = await fetchRangeMapDirect(taxonId);
+      if (direct) return { geojson: direct, childCount: 0 };
+
+      const higherRanks = ['genus','subgenus','family','subfamily','order','class','phylum','kingdom','tribe','subtribe','supertribe'];
+      if (!higherRanks.includes(rank)) return { geojson: null, childCount: 0 };
+
+      if (onProgress) onProgress('Fetching child species list…');
+      const childIds = await fetchChildSpecies(taxonId, 40);
+      if (!childIds.length) return { geojson: null, childCount: 0 };
+
+      const features = [];
+      for (let i = 0; i < childIds.length; i++) {
+        if (onProgress) onProgress(`Loading species range ${i+1}/${childIds.length}…`);
+        const gj = await fetchRangeMapDirect(childIds[i]);
+        if (gj) {
+          const f = normalizeFeature(gj);
+          if (f) features.push(f);
+        }
+      }
+      if (!features.length) return { geojson: null, childCount: childIds.length };
+
+      if (onProgress) onProgress('Merging child ranges…');
+      let union = features[0];
+      for (let i = 1; i < features.length; i++) {
+        try { union = turf.union(union, features[i]); } catch(e) {}
+      }
+      return { geojson: union, childCount: features.length };
+    }
+
+    function normalizeFeature(geojson) {
+      if (!geojson) return null;
+      if (geojson.type === 'Feature') return geojson;
+      if (geojson.type === 'FeatureCollection' && geojson.features && geojson.features.length > 0) {
+        if (geojson.features.length === 1) return geojson.features[0];
+        try { return turf.union(...geojson.features); } catch(e) { return geojson.features[0]; }
+      }
+      return null;
+    }
+
+    function countArea(feature) {
+      if (!feature || !feature.geometry) return 0;
+      try { return Math.round(turf.area(feature) / 1e6); } catch(e) { return 0; }
+    }
+
+    function renderRangeLayer(feature, color) {
+      const lg = L.layerGroup();
+      if (!feature) return lg;
+      try {
+        L.geoJSON(feature, {
+          style: { color, weight: 0.5, opacity: 0.6, fillColor: color, fillOpacity: 0.25 }
+        }).addTo(lg);
+      } catch(e) { console.warn('render error', e); }
+      return lg;
+    }
+
+    function computeIntersection(features) {
+      if (!features.length) return null;
+      let result = features[0];
+      for (let i = 1; i < features.length; i++) {
+        if (!result) return null;
+        try {
+          result = turf.intersect(result, features[i]);
+        } catch(e) {
+          console.warn('intersection error', e);
+          return null;
+        }
+        if (!result) return null;
+      }
+      return result;
+    }
+
+    function safeGetBounds(features) {
+      const bounds = L.latLngBounds([]);
+      for (const f of features) {
+        if (!f) continue;
+        try {
+          const b = L.geoJSON(f).getBounds();
+          if (b.isValid()) bounds.extend(b);
+        } catch(e) {}
+      }
+      return bounds;
+    }
+
+    async function runSearch() {
+      const raw = document.getElementById('taxa').value.trim();
+      if (!raw) { setStatus('Please enter at least one species.'); return; }
+      const inputs = raw.split('\n').map(s => s.trim()).filter(Boolean);
+      if (!inputs.length) return;
+
+      // Collapse panel to show map while loading
+      if (panelOpen) togglePanel();
+
+      document.getElementById('search-btn').disabled = true;
+      document.getElementById('results-panel').style.display = 'none';
+      layerGroups.forEach(lg => map.removeLayer(lg));
+      layerGroups = [];
+      if (overlapLayer) { map.removeLayer(overlapLayer); overlapLayer = null; }
+      updateLegend([]);
+
+      const results = [];
+
+      for (let i = 0; i < inputs.length; i++) {
+        const input = inputs[i];
+        const color = COLORS[i % COLORS.length];
+
+        setStatus(`Resolving ${i+1}/${inputs.length}: ${input}…`, true);
+        let taxon = null;
+        try {
+          taxon = await resolveTaxon(input);
+        } catch(e) {
+          results.push({ input, color, error: 'Not found on iNaturalist' });
+          continue;
+        }
+
+        setStatus(`Fetching range: ${taxon.sciName}…`, true);
+        let feature = null;
+        let childCount = 0;
+        try {
+          const result = await fetchRangeMap(taxon.id, taxon.rank, (msg) => setStatus(msg, true));
+          feature = normalizeFeature(result.geojson);
+          childCount = result.childCount;
+        } catch(e) { console.warn(e); }
+
+        const areaSqKm = feature ? countArea(feature) : 0;
+        results.push({ input, color, taxon, feature, areaSqKm, hasRange: !!feature, childCount });
+
+        if (feature) {
+          const lg = renderRangeLayer(feature, color);
+          lg.addTo(map);
+          layerGroups.push(lg);
+        }
+      }
+
+      updateLegend(results.filter(r => r.taxon).map(r => ({
+        color: r.color, label: r.taxon.sciName, rank: r.taxon.rank
+      })));
+
+      const validResults = results.filter(r => r.hasRange);
+      const validFeatures = validResults.map(r => r.feature);
+      let overlapNote = '';
+
+      if (validFeatures.length >= 2) {
+        setStatus('Computing overlap…', true);
+        const intersection = computeIntersection(validFeatures);
+
+        if (intersection) {
+          const overlapSqKm = countArea(intersection);
+          overlapLayer = L.layerGroup();
+          try {
+            L.geoJSON(intersection, {
+              style: { color: '#1b4332', weight: 0.8, opacity: 0.9, fillColor: '#2d6a4f', fillOpacity: 0.65 }
+            }).addTo(overlapLayer);
+          } catch(e) {}
+          overlapLayer.addTo(map);
+          try {
+            const ob = L.geoJSON(intersection).getBounds();
+            if (ob.isValid()) map.fitBounds(ob, { padding: [40, 40] });
+          } catch(e) {
+            const b = safeGetBounds(validFeatures);
+            if (b.isValid()) map.fitBounds(b, { padding: [30, 30] });
+          }
+          overlapNote = `<div class="overlap-note">Overlap found across ${validFeatures.length} species — approx. ${overlapSqKm.toLocaleString()} km².</div>`;
+        } else {
+          const b = safeGetBounds(validFeatures);
+          if (b.isValid()) map.fitBounds(b, { padding: [30, 30] });
+          overlapNote = `<div class="overlap-note none">No overlap found. These species may not naturally co-exist, or geomodel data may be incomplete.</div>`;
+        }
+      } else if (validFeatures.length === 1) {
+        const b = safeGetBounds(validFeatures);
+        if (b.isValid()) map.fitBounds(b, { padding: [30, 30] });
+      }
+
+      const rowsHtml = results.map(r => {
+        if (r.error) return `<div class="result-row"><span class="rinput">${r.input}</span> <span class="rstatus err">${r.error}</span></div>`;
+        const inputDiffers = r.taxon.sciName.toLowerCase() !== r.input.toLowerCase();
+        return `<div class="result-row">
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <div style="width:10px;height:10px;border-radius:50%;background:${r.color};flex-shrink:0"></div>
+            <span class="rname">${r.taxon.sciName}</span>
+            ${r.taxon.rank && r.taxon.rank !== 'species' ? `<span class="rbadge">${r.taxon.rank}</span>` : ''}
+          </div>
+          ${r.taxon.commonName ? `<div class="rcommon">${r.taxon.commonName}</div>` : ''}
+          ${inputDiffers ? `<div class="rinput">entered: "${r.input}"</div>` : ''}
+          <div class="rstatus ${r.hasRange ? 'ok' : 'warn'}">
+            ${r.hasRange
+              ? `Range loaded (~${r.areaSqKm.toLocaleString()} km²)${r.childCount > 0 ? ` · ${r.childCount} species` : ''}`
+              : 'No range map available'}
+          </div>
+        </div>`;
+      }).join('');
+
+      const panel = document.getElementById('results-panel');
+      panel.innerHTML = `<button id="close-results" onclick="closeResults()">✕</button><h3>Results</h3>${rowsHtml}${overlapNote}`;
+      panel.style.display = 'block';
+
+      const loaded = results.filter(r => r.hasRange).length;
+      const missing = results.filter(r => r.taxon && !r.hasRange).length;
+      const notFound = results.filter(r => r.error).length;
+      setStatus(`Done — ${loaded} range${loaded !== 1 ? 's' : ''} loaded${missing ? `, ${missing} missing` : ''}${notFound ? `, ${notFound} not found` : ''}.`);
+      document.getElementById('search-btn').disabled = false;
+    }
+
+    function clearAll() {
+      document.getElementById('taxa').value = '';
+      layerGroups.forEach(lg => map.removeLayer(lg));
+      layerGroups = [];
+      if (overlapLayer) { map.removeLayer(overlapLayer); overlapLayer = null; }
+      updateLegend([]);
+      document.getElementById('results-panel').style.display = 'none';
+      setStatus('Enter species above and tap Find Overlap.');
+      map.setView([30, 0], 2);
+      if (!panelOpen) togglePanel();
+    }
+</script>
+</body>
+</html>
