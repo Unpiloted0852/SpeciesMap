@@ -31,6 +31,10 @@ Coffee: https://ko-fi.com/unpiloted0852
   [geomodel](https://www.inaturalist.org/geo_model), built from where people have recorded each
   species. They are estimates, not surveyed boundaries, and less-observed species may have no
   range at all.
+- iNaturalist's published range files are wrong for some very widespread species (red fox,
+  house sparrow, rock pigeon), where most of the range is missing. The app checks each file
+  against iNaturalist's own map tiles of the same model and, when the file falls far short,
+  rebuilds the range by tracing those tiles.
 - The app needs an internet connection for search, ranges and the map.
 - No API keys are needed. The base map is [OpenFreeMap](https://openfreemap.org) (OpenMapTiles
   schema, OpenStreetMap data), drawn with [MapLibre GL JS](https://maplibre.org); range geometry
