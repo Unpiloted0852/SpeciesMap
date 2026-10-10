@@ -400,15 +400,15 @@ function applyTheme() {
     map.setStyle(dark ? BASEMAP.dark : BASEMAP.light);
   }
 }
-// The stock dark base map is dark grey; take both land and water to true black, told apart
-// by a thin coastline, with place names lifted so they stay readable.
+// The stock dark base map is dark grey; take land to true black and water to a very dark
+// blue, with a thin coastline and place names lifted so they stay readable.
 function blackenBasemap() {
   const set = (layer, prop, value) => { if (map.getLayer(layer)) map.setPaintProperty(layer, prop, value); };
   set('background', 'background-color', '#000000');
   set('landcover_ice_shelf', 'fill-color', '#000000');
-  set('water', 'fill-color', '#000000');
+  set('water', 'fill-color', '#060d13');
   set('water', 'fill-outline-color', '#33454c');
-  set('waterway', 'line-color', '#1b262a');
+  set('waterway', 'line-color', '#0f1a22');
   for (const l of map.getStyle().layers) {
     if (l.type === 'symbol' && l.id.startsWith('place_')) set(l.id, 'text-color', '#8f9692');
   }

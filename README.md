@@ -24,7 +24,7 @@ Coffee: https://ko-fi.com/unpiloted0852
   tap the map to see which of your species are expected at that spot.
 - Compare up to eight at once. The list is remembered between launches.
 - Light and dark themes follow the system setting or can be chosen in the About sheet. Dark
-  is true black for OLED screens.
+  is true black for OLED screens, with a very dark blue ocean.
 
 ## Things worth knowing
 
