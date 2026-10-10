@@ -19,6 +19,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "SpeicesMap"
+rootProject.name = "SpeciesMap"
 include(":app")
  

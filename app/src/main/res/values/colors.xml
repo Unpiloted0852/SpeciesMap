@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
+    <!-- Matches the page's surface colour so the system bars blend into it. -->
+    <color name="surface">#FFFDF8</color>
+    <color name="accent">#1F6F50</color>
+    <color name="ic_launcher_background">#16382C</color>
 </resources>

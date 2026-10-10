@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SpeciesMap</title>
+<link rel="stylesheet" href="lib/maplibre-gl.css">
+<style>
+  :root {
+    --bg: #f4f1ea;
+    --surface: #fffdf8;
+    --surface-2: #f3efe5;
+    --ink: #1c2420;
+    --muted: #5f6b64;
+    --line: #e3ded2;
+    --accent: #1f6f50;
+    --accent-ink: #ffffff;
+    --shared: #f2b705;
+    --shared-line: #3a2c00;
+    --warn: #9a5b13;
+    --bad: #a8321f;
+    --shadow: 0 6px 24px rgba(28, 36, 32, .16), 0 1px 3px rgba(28, 36, 32, .10);
+    --peek: 60px;
+    --serif: "Noto Serif", Georgia, serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1513;
+      --surface: #18201d;
+      --surface-2: #212b27;
+      --ink: #e9efe9;
+      --muted: #9aa8a0;
+      --line: #2c3833;
+      --accent: #58c39a;
+      --accent-ink: #06241a;
+      --shared-line: #fff3c4;
+      --warn: #e0a659;
+      --bad: #f08a78;
+      --shadow: 0 6px 24px rgba(0, 0, 0, .5), 0 1px 3px rgba(0, 0, 0, .4);
+    }
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; }
+  [hidden] { display: none !important; }
+  body {
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    overflow: hidden;
+    position: relative;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; touch-action: manipulation; }
+  a { color: var(--accent); }
+  svg.i { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .sci { font-family: var(--serif); font-style: italic; }
+
+  #map { position: absolute; inset: 0; }
+  .maplibregl-ctrl-bottom-right { bottom: var(--peek); }
+  .maplibregl-ctrl-attrib { font-size: 11px; }
+  .maplibregl-popup-content {
+    background: var(--surface); color: var(--ink); border-radius: 12px; padding: 10px 12px;
+    box-shadow: var(--shadow); font: inherit; font-size: 13px; min-width: 150px;
+  }
+  .maplibregl-popup-anchor-bottom .maplibregl-popup-tip { border-top-color: var(--surface); }
+  .here-title { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  .here-row { display: flex; align-items: center; gap: 7px; padding: 2px 0; }
+  .here-none { color: var(--muted); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+
+  /* ── Search ── */
+  #top {
+    position: absolute; top: 10px; left: 10px; right: 10px; z-index: 5;
+    max-width: 520px; display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+  }
+  #top > * { pointer-events: auto; }
+  #search { background: var(--surface); border-radius: 26px; box-shadow: var(--shadow); overflow: hidden; }
+  #search-row { display: flex; align-items: center; height: 52px; padding: 0 6px 0 16px; gap: 10px; }
+  #search-row > svg { color: var(--muted); }
+  #q {
+    flex: 1; min-width: 0; height: 100%; border: 0; outline: 0; background: none;
+    color: var(--ink); font: inherit; font-size: 16px;
+  }
+  #q::placeholder { color: var(--muted); }
+  #q::-webkit-search-cancel-button { display: none; }
+  .icon-btn { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); flex: none; }
+  .icon-btn:active { background: var(--surface-2); }
+  #suggest { border-top: 1px solid var(--line); max-height: min(56vh, 420px); overflow-y: auto; }
+  #suggest:empty { display: none; }
+  .sug { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 9px 16px; min-height: 58px; }
+  .sug:active, .sug.first { background: var(--surface-2); }
+  .sug[disabled] { opacity: .5; }
+  .sug-msg { padding: 16px; color: var(--muted); font-size: 14px; }
+  .thumb { width: 40px; height: 40px; border-radius: 10px; object-fit: cover; background: var(--surface-2); flex: none; }
+  .names { flex: 1; min-width: 0; }
+  .names b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .names span { display: block; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge {
+    font: 600 10px/1 system-ui, sans-serif; font-style: normal; letter-spacing: .05em; text-transform: uppercase;
+    padding: 3px 6px; border-radius: 5px; background: var(--surface-2); color: var(--muted); margin-left: 6px; vertical-align: 1px;
+  }
+
+  #update {
+    align-self: flex-start; display: none; align-items: center; gap: 8px; height: 40px; padding: 0 16px;
+    border-radius: 20px; background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 14px; box-shadow: var(--shadow);
+  }
+  #update.show { display: inline-flex; }
+  #update[disabled] { opacity: .85; }
+
+  /* ── Sheet ── */
+  #sheet {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; max-width: 520px;
+    background: var(--surface); border-radius: 20px 20px 0 0; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; max-height: 58%;
+    transition: transform .2s ease;
+  }
+  body.searching #sheet { transform: translateY(110%); }
+  #sheet-head { display: flex; align-items: center; gap: 12px; width: 100%; min-height: var(--peek); padding: 0 8px 0 18px; text-align: left; flex: none; }
+  #summary { flex: 1; min-width: 0; }
+  #summary b { display: block; font-size: 16px; font-weight: 650; }
+  #summary span { display: block; font-size: 13px; color: var(--muted); }
+  #sheet-head .chev { transition: transform .2s; color: var(--muted); }
+  #sheet.closed .chev { transform: rotate(180deg); }
+  #sheet.closed #sheet-body { display: none; }
+  #sheet-body { overflow-y: auto; padding: 0 18px calc(16px + env(safe-area-inset-bottom)); }
+  .spinner { width: 18px; height: 18px; border: 2.5px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; flex: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .intro { color: var(--muted); font-size: 14px; margin-bottom: 14px; }
+  .label { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 4px 0 8px; }
+  .examples { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { min-height: 40px; padding: 8px 14px; border-radius: 20px; border: 1.5px solid var(--line); font-size: 14px; font-weight: 500; text-align: left; }
+  .chip:active { background: var(--surface-2); }
+
+  .row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .row:first-child { border-top: 0; }
+  .row-main { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; text-align: left; min-height: 48px; }
+  .row .thumb { border: 3px solid var(--c); width: 44px; height: 44px; border-radius: 50%; }
+  .row.hidden .row-main { opacity: .45; }
+  .row .stat { font-size: 12.5px; color: var(--muted); white-space: normal; }
+  .row .stat.warn { color: var(--warn); }
+  .row .stat.bad { color: var(--bad); }
+
+  .swatch { width: 24px; height: 24px; border-radius: 7px; background: var(--shared); border: 2px solid var(--shared-line); flex: none; }
+  .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .btn { min-height: 44px; padding: 0 16px; border-radius: 22px; font-weight: 600; font-size: 14px; background: var(--surface-2); display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: var(--ink); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); }
+  .btn:active { opacity: .75; }
+  .btn.quiet { background: none; color: var(--muted); margin-left: auto; }
+
+  /* ── About ── */
+  #about { position: absolute; inset: 0; z-index: 10; background: rgba(0, 0, 0, .45); display: none; align-items: flex-end; justify-content: center; }
+  #about.show { display: flex; }
+  #about-card {
+    background: var(--surface); width: 100%; max-width: 520px; max-height: 88%; overflow-y: auto;
+    border-radius: 20px 20px 0 0; padding: 8px 20px calc(20px + env(safe-area-inset-bottom));
+  }
+  #about-card header { display: flex; align-items: center; justify-content: space-between; margin-right: -12px; }
+  #about-card h2 { font-size: 20px; }
+  #about-card p { margin-top: 10px; font-size: 14px; color: var(--muted); }
+  #about-card p b { color: var(--ink); }
+  #version { font-size: 13px; color: var(--muted); }
+  @media (min-width: 700px) {
+    #about { align-items: center; }
+    #about-card { border-radius: 20px; }
+    #sheet { left: 10px; bottom: 10px; border-radius: 20px; max-width: 400px; }
+    #top { max-width: 400px; }
+    .maplibregl-ctrl-bottom-right { bottom: 0; }
+  }
+
+  #toast {
+    position: absolute; left: 50%; bottom: calc(var(--peek) + 16px); transform: translateX(-50%); z-index: 12;
+    background: var(--ink); color: var(--surface); padding: 10px 16px; border-radius: 12px; font-size: 14px;
+    max-width: calc(100% - 32px); opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  #toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 5.1A9.6 9.6 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.5 6.6A17 17 0 0 0 2 12s3.6 7 10 7a9.700 9.700 0 0 0 4.200-1"/></symbol>
+    <symbol id="i-retry" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.300 6.300M20 4v7h-7"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.400-7-10a4 4 0 0 1 7-2.600A4 4 0 0 1 19 10c0 5.600-7 10-7 10Z"/></symbol>
+  </defs>
+</svg>
+
+<div id="map"></div>
+
+<div id="top">
+  <div id="search">
+    <div id="search-row">
+      <svg class="i"><use href="#i-search"/></svg>
+      <input id="q" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="off" spellcheck="false"
+             placeholder="Add a species or group" aria-label="Add a species or group">
+      <button class="icon-btn" id="q-clear" aria-label="Clear search" hidden><svg class="i"><use href="#i-x"/></svg></button>
+      <button class="icon-btn" id="about-btn" aria-label="About SpeciesMap"><svg class="i"><use href="#i-info"/></svg></button>
+    </div>
+    <div id="suggest" role="listbox"></div>
+  </div>
+  <button id="update"></button>
+</div>
+
+<section id="sheet" aria-label="Your species">
+  <button id="sheet-head" aria-expanded="true">
+    <div id="summary"></div>
+    <svg class="i chev"><use href="#i-chev"/></svg>
+  </button>
+  <div id="sheet-body"></div>
+</section>
+
+<div id="about" role="dialog" aria-modal="true" aria-labelledby="about-title">
+  <div id="about-card">
+    <header>
+      <div><h2 id="about-title">SpeciesMap</h2><div id="version"></div></div>
+      <button class="icon-btn" id="about-close" aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+    </header>
+    <p>Add two or more species to see where their ranges overlap. Add a genus or family and the app
+      combines the ranges of its 40 most-observed species.</p>
+    <p><b>About the ranges.</b> They are predictions from iNaturalist's geomodel, built from where people
+      have recorded each species. They are estimates, not surveyed boundaries, and less-observed species
+      may have no range at all.</p>
+    <p>Range data © <a href="https://www.inaturalist.org/geo_model" target="_blank" rel="noopener">iNaturalist</a> (CC BY 4.0).
+      Map © <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a>,
+      <a href="https://www.openmaptiles.org" target="_blank" rel="noopener">OpenMapTiles</a> and
+      <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors.
+      Not affiliated with iNaturalist.</p>
+    <div class="actions">
+      <a class="btn primary" href="https://ko-fi.com/unpiloted0852" target="_blank" rel="noopener"><svg class="i"><use href="#i-heart"/></svg>Buy me a coffee</a>
+      <a class="btn" href="https://github.com/Unpiloted0852/SpeciesMap" target="_blank" rel="noopener">Source on GitHub</a>
+      <button class="btn" id="check-update" hidden>Check for updates</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status"></div>
+
+<script src="lib/maplibre-gl.js"></script>
+<script src="lib/turf.min.js"></script>
+<script>
+'use strict';
+
+const API = 'https://api.inaturalist.org/v1';
+const RANGES = 'https://inaturalist-open-data.s3.amazonaws.com/geomodel/geojsons/latest';
+const BASEMAP = {
+  light: 'https://tiles.openfreemap.org/styles/positron',
+  dark: 'https://tiles.openfreemap.org/styles/dark'
+};
+const PALETTE = ['#d1495b', '#2e86ab', '#8f5fbf', '#e07a2f', '#17a398', '#c04cae', '#5b6ee1', '#7a9e1f'];
+const GROUP_LIMIT = 40;
+const STORE_KEY = 'speciesmap.items';
+const EXAMPLES = [
+  { label: 'Monarch & common milkweed', names: ['Danaus plexippus', 'Asclepias syriaca'] },
+  { label: 'Wolf & moose', names: ['Canis lupus', 'Alces alces'] },
+  { label: 'Red maple & eastern chipmunk', names: ['Acer rubrum', 'Tamias striatus'] }
+];
+const EMPTY = { type: 'FeatureCollection', features: [] };
+
+const $ = id => document.getElementById(id);
+const native = window.Android || null;
+const darkQuery = matchMedia('(prefers-color-scheme: dark)');
+
+const state = { items: [], shared: null, sharedKm2: 0, sharedFailed: false, comparing: false };
+let styleReady = false;
+let herePopup = null;
+
+/* ── Helpers ── */
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+function icon(name) { return `<svg class="i"><use href="#i-${name}"/></svg>`; }
+function fmtArea(km2) {
+  if (km2 >= 1e6) return `${(km2 / 1e6).toFixed(km2 >= 1e7 ? 0 : 1)} million km²`;
+  if (km2 >= 1000) return `${Math.round(km2 / 1000).toLocaleString()},000 km²`;
+  return `${Math.max(1, Math.round(km2)).toLocaleString()} km²`;
+}
+function fmtShare(part, whole) {
+  const p = whole > 0 ? part / whole * 100 : 0;
+  return p > 0 && p < 1 ? 'under 1%' : `${Math.min(100, Math.round(p))}%`;
+}
+function displayName(t) { return t.common ? cap(t.common) : t.name; }
+let toastTimer;
+function toast(msg) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3200);
+}
+async function getJson(url, signal) {
+  const r = await fetch(url, { signal });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+function toTaxon(t) {
+  return {
+    id: t.id, name: t.name, common: t.preferred_common_name || '', rank: t.rank || '',
+    level: t.rank_level || 10, photo: (t.default_photo && t.default_photo.square_url) || '',
+    parentId: t.parent_id || (t.ancestor_ids && t.ancestor_ids[t.ancestor_ids.length - 2]) || null
+  };
+}
+
+/* ── Map ── */
+const map = new maplibregl.Map({
+  container: 'map',
+  style: darkQuery.matches ? BASEMAP.dark : BASEMAP.light,
+  center: [0, 25], zoom: 1.2, attributionControl: false,
+  dragRotate: false, pitchWithRotate: false
+});
+map.touchZoomRotate.disableRotation();
+map.addControl(new maplibregl.AttributionControl({
+  compact: true,
+  customAttribution: 'Ranges © <a href="https://www.inaturalist.org/geo_model" target="_blank" rel="noopener">iNaturalist</a>'
+}), 'bottom-right');
+map.on('style.load', () => { styleReady = true; rebuildLayers(); });
+map.on('error', e => console.warn('map', e && e.error));
+darkQuery.addEventListener('change', () => {
+  styleReady = false;
+  map.setStyle(darkQuery.matches ? BASEMAP.dark : BASEMAP.light);
+});
+
+// Ranges sit under the basemap's labels so place names stay readable.
+function labelLayerId() {
+  const l = map.getStyle().layers.find(l => l.type === 'symbol');
+  return l ? l.id : undefined;
+}
+function rebuildLayers() {
+  if (!styleReady) return;
+  if (!map.getSource('shared')) {
+    const before = labelLayerId();
+    map.addSource('shared', { type: 'geojson', data: state.shared || EMPTY });
+    map.addLayer({ id: 'shared-fill', type: 'fill', source: 'shared',
+      paint: { 'fill-color': '#f2b705', 'fill-opacity': 0.62 } }, before);
+    map.addLayer({ id: 'shared-line', type: 'line', source: 'shared',
+      paint: { 'line-color': darkQuery.matches ? '#fff3c4' : '#3a2c00', 'line-width': 1.6 } }, before);
+  }
+  state.items.forEach(syncLayer);
+}
+function syncLayer(it) {
+  if (!styleReady) return;
+  const id = 'range-' + it.key;
+  const present = !!map.getSource(id);
+  if (it.status !== 'ok') {
+    if (present) dropLayer(it);
+    return;
+  }
+  if (!present) {
+    map.addSource(id, { type: 'geojson', data: it.feature });
+    map.addLayer({ id: id + '-fill', type: 'fill', source: id,
+      paint: { 'fill-color': it.color, 'fill-opacity': 0.28 } }, 'shared-fill');
+    map.addLayer({ id: id + '-line', type: 'line', source: id,
+      paint: { 'line-color': it.color, 'line-width': 1.2, 'line-opacity': 0.9 } }, 'shared-fill');
+  }
+  const vis = it.visible ? 'visible' : 'none';
+  map.setLayoutProperty(id + '-fill', 'visibility', vis);
+  map.setLayoutProperty(id + '-line', 'visibility', vis);
+}
+function dropLayer(it) {
+  if (!styleReady) return;
+  const id = 'range-' + it.key;
+  for (const l of [id + '-fill', id + '-line']) if (map.getLayer(l)) map.removeLayer(l);
+  if (map.getSource(id)) map.removeSource(id);
+}
+function fitTo(features) {
+  features = features.filter(Boolean);
+  if (!features.length) return;
+  const [w, s, e, n] = turf.bbox(turf.featureCollection(features));
+  const sheetH = $('sheet').getBoundingClientRect().height;
+  const wide = innerWidth >= 700;
+  map.fitBounds([[w, Math.max(s, -85)], [e, Math.min(n, 85)]], {
+    padding: {
+      top: 84, right: 28,
+      bottom: wide ? 28 : Math.min(sheetH, innerHeight * 0.5) + 20,
+      left: wide ? 440 : 28
+    },
+    maxZoom: 8, duration: 700
+  });
+}
+function shownItems() { return state.items.filter(i => i.status === 'ok' && i.visible); }
+
+map.on('click', e => {
+  const shown = shownItems();
+  if (!shown.length) return;
+  const ll = e.lngLat.wrap();
+  const pt = turf.point([ll.lng, ll.lat]);
+  const here = shown.filter(it => turf.booleanPointInPolygon(pt, it.feature));
+  const body = here.length
+    ? '<div class="here-title">Expected here</div>' + here.map(it =>
+        `<div class="here-row"><span class="dot" style="background:${it.color}"></span>${esc(displayName(it.taxon))}</div>`).join('')
+    : `<div class="here-none">${shown.length === 1 ? 'Not' : 'None of them are'} expected here</div>`;
+  if (herePopup) herePopup.remove();
+  herePopup = new maplibregl.Popup({ anchor: 'bottom', closeButton: false, maxWidth: '260px' })
+    .setLngLat(e.lngLat)
+    .setHTML(body)
+    .addTo(map);
+});
+
+/* ── Range data ── */
+function toFeature(gj) {
+  if (!gj) return null;
+  if (gj.type === 'Feature') return gj.geometry ? gj : null;
+  if (gj.type === 'FeatureCollection') {
+    const fs = (gj.features || []).filter(f => f && f.geometry);
+    if (!fs.length) return null;
+    return fs.length === 1 ? fs[0] : turf.union(turf.featureCollection(fs));
+  }
+  return null;
+}
+async function fetchModel(taxonId) {
+  const r = await fetch(`${RANGES}/${taxonId}.geojson`);
+  if (r.status === 403 || r.status === 404) return null; // no range modelled for this taxon
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return toFeature(await r.json());
+}
+async function pool(list, size, fn) {
+  const out = new Array(list.length);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(size, list.length) }, async () => {
+    while (next < list.length) {
+      const i = next++;
+      out[i] = await fn(list[i]);
+    }
+  }));
+  return out;
+}
+// Resolves to { feature, note }. Species have their own modelled range; a group (genus and
+// above) is the union of its most-observed species; a subspecies falls back to its species.
+async function fetchRange(taxon, onProgress) {
+  const direct = await fetchModel(taxon.id);
+  if (direct) return { feature: direct, note: '' };
+
+  if (taxon.level < 10 && taxon.parentId) {
+    const parent = await fetchModel(taxon.parentId);
+    return parent ? { feature: parent, note: 'Showing the range of its parent species' } : { feature: null };
+  }
+  if (taxon.level <= 10) return { feature: null };
+
+  onProgress('Finding its species…');
+  const counts = await getJson(`${API}/observations/species_counts?taxon_id=${taxon.id}&per_page=${GROUP_LIMIT}`);
+  const ids = (counts.results || []).map(r => r.taxon.id);
+  let done = 0;
+  const parts = (await pool(ids, 6, async id => {
+    const f = await fetchModel(id).catch(() => null);
+    onProgress(`Loading species ${++done} of ${ids.length}…`);
+    return f;
+  })).filter(Boolean);
+  if (!parts.length) return { feature: null };
+  onProgress('Combining ranges…');
+  await paint();
+  const feature = parts.length === 1 ? parts[0] : turf.union(turf.featureCollection(parts));
+  const most = counts.total_results > ids.length ? ' most-observed' : '';
+  return { feature, note: `Combined from its ${parts.length}${most} species` };
+}
+// Lets the browser draw a status change before a long synchronous geometry step.
+function paint() { return new Promise(r => setTimeout(r, 40)); }
+
+/* ── Items ── */
+function addTaxon(taxon, opts = {}) {
+  if (state.items.some(i => i.taxon.id === taxon.id)) { toast(`${displayName(taxon)} is already on the map`); return null; }
+  if (state.items.length >= PALETTE.length) { toast(`You can compare up to ${PALETTE.length} at once`); return null; }
+  const color = PALETTE.find(c => !state.items.some(i => i.color === c));
+  const it = { key: taxon.id, taxon, color, status: 'loading', progress: '', visible: opts.visible !== false, feature: null, km2: 0, note: '' };
+  state.items.push(it);
+  save();
+  loadItem(it);
+  return it;
+}
+async function loadItem(it) {
+  it.status = 'loading'; it.progress = '';
+  render();
+  try {
+    const res = await fetchRange(it.taxon, msg => { it.progress = msg; render(); });
+    if (!state.items.includes(it)) return;
+    it.note = res.note || '';
+    if (res.feature) {
+      it.feature = res.feature;
+      it.km2 = turf.area(res.feature) / 1e6;
+      it.status = 'ok';
+    } else {
+      it.status = 'none';
+    }
+  } catch (e) {
+    console.warn(e);
+    if (!state.items.includes(it)) return;
+    it.status = 'error';
+  }
+  syncLayer(it);
+  await compare();
+  if (!state.items.some(i => i.status === 'loading')) fitTo(state.shared ? [state.shared] : shownItems().map(i => i.feature));
+}
+function removeItem(it) {
+  state.items = state.items.filter(i => i !== it);
+  dropLayer(it);
+  if (herePopup) herePopup.remove();
+  save();
+  compare();
+}
+function clearAll() {
+  state.items.forEach(dropLayer);
+  state.items = [];
+  if (herePopup) herePopup.remove();
+  save();
+  compare();
+  map.flyTo({ center: [0, 25], zoom: 1.2, duration: 700 });
+}
+function save() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(state.items.map(i => ({ taxon: i.taxon, visible: i.visible }))));
+  } catch (e) { /* storage unavailable: the list just won't persist */ }
+}
+function restore() {
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem(STORE_KEY)) || []; } catch (e) { saved = []; }
+  saved.forEach(s => s && s.taxon && s.taxon.id && addTaxon(s.taxon, { visible: s.visible }));
+}
+
+let compareRun = 0;
+async function compare() {
+  const run = ++compareRun;
+  const shown = shownItems();
+  state.sharedFailed = false;
+  if (shown.length < 2) {
+    state.shared = null; state.sharedKm2 = 0; state.comparing = false;
+  } else {
+    state.comparing = true;
+    render();
+    await paint();
+    if (run !== compareRun) return;
+    try {
+      state.shared = turf.intersect(turf.featureCollection(shown.map(i => i.feature)));
+      state.sharedKm2 = state.shared ? turf.area(state.shared) / 1e6 : 0;
+    } catch (e) {
+      console.warn(e);
+      state.shared = null; state.sharedKm2 = 0; state.sharedFailed = true;
+    }
+    state.comparing = false;
+  }
+  if (styleReady && map.getSource('shared')) map.getSource('shared').setData(state.shared || EMPTY);
+  render();
+}
+
+/* ── Sheet ── */
+function render() {
+  const items = state.items;
+  const loading = items.filter(i => i.status === 'loading').length;
+  const shown = shownItems();
+  let title, sub = '', busy = loading > 0 || state.comparing;
+
+  if (!items.length) { title = 'Where do species live together?'; sub = 'Search above to add your first species'; }
+  else if (loading) { title = loading === 1 ? 'Loading a range…' : `Loading ${loading} ranges…`; }
+  else if (state.comparing) { title = 'Comparing ranges…'; }
+  else if (shown.length < 2) { title = items.length === 1 ? displayName(items[0].taxon) : 'Nothing to compare yet'; sub = 'Add another species to compare'; }
+  else if (state.sharedFailed) { title = 'Could not compare these ranges'; }
+  else if (state.shared) { title = `Shared range: ${fmtArea(state.sharedKm2)}`; sub = `Gold on the map: where ${shown.length === 2 ? 'both' : 'all ' + shown.length} are expected`; }
+  else { title = 'No shared range'; sub = 'Their ranges do not meet. Hide one to compare the rest.'; }
+
+  $('summary').innerHTML = `<b>${esc(title)}</b>${sub ? `<span>${esc(sub)}</span>` : ''}`;
+  const head = $('sheet-head');
+  const lead = busy ? '<div class="spinner"></div>' : state.shared ? '<div class="swatch"></div>' : '';
+  head.querySelectorAll('.spinner, .swatch').forEach(el => el.remove());
+  head.insertAdjacentHTML('afterbegin', lead);
+
+  if (!items.length) {
+    $('sheet-body').innerHTML = `
+      <p class="intro">Add two or more species, or whole groups such as a genus or family, and the map highlights where their ranges overlap.</p>
+      <div class="label">Try an example</div>
+      <div class="examples">${EXAMPLES.map((x, i) => `<button class="chip" data-act="example" data-key="${i}">${esc(x.label)}</button>`).join('')}</div>`;
+    return;
+  }
+
+  const showShare = state.shared && !loading && !state.comparing;
+  const rows = items.map(it => {
+    const t = it.taxon;
+    let stat, cls = '';
+    if (it.status === 'loading') stat = it.progress || 'Loading range…';
+    else if (it.status === 'error') { stat = 'Could not load. Check your connection.'; cls = 'bad'; }
+    else if (it.status === 'none') { stat = 'No range available for this one'; cls = 'warn'; }
+    else {
+      stat = fmtArea(it.km2);
+      if (showShare && it.visible) stat += ` · ${fmtShare(state.sharedKm2, it.km2)} shared`;
+      if (it.note) stat += ` · ${it.note}`;
+    }
+    const badge = t.rank && t.rank !== 'species' ? `<i class="badge">${esc(t.rank)}</i>` : '';
+    const second = it.status === 'error'
+      ? `<button class="icon-btn" data-act="retry" data-key="${it.key}" aria-label="Try again">${icon('retry')}</button>`
+      : it.status === 'ok'
+        ? `<button class="icon-btn" data-act="toggle" data-key="${it.key}" aria-pressed="${it.visible}" aria-label="${it.visible ? 'Hide' : 'Show'} ${esc(displayName(t))}">${icon(it.visible ? 'eye' : 'eye-off')}</button>`
+        : '';
+    return `<div class="row${it.visible ? '' : ' hidden'}" style="--c:${it.color}">
+      <button class="row-main" data-act="focus" data-key="${it.key}">
+        ${t.photo ? `<img class="thumb" src="${esc(t.photo)}" alt="">` : '<div class="thumb"></div>'}
+        <div class="names">
+          <b>${esc(displayName(t))}</b>
+          <span>${t.common ? `<span class="sci" style="display:inline">${esc(t.name)}</span>` : ''}${badge}</span>
+          <span class="stat ${cls}">${esc(stat)}</span>
+        </div>
+      </button>
+      ${second}
+      <button class="icon-btn" data-act="remove" data-key="${it.key}" aria-label="Remove ${esc(displayName(t))}">${icon('x')}</button>
+    </div>`;
+  }).join('');
+
+  const canFit = shown.length > 0;
+  $('sheet-body').innerHTML = `${rows}
+    <div class="actions">
+      ${state.shared ? '<button class="btn primary" data-act="fit-shared">Zoom to shared</button>' : ''}
+      ${canFit ? '<button class="btn" data-act="fit-all">Show all</button>' : ''}
+      <button class="btn quiet" data-act="clear">Clear</button>
+    </div>`;
+}
+
+$('sheet-body').addEventListener('click', e => {
+  const b = e.target.closest('[data-act]');
+  if (!b) return;
+  const it = state.items.find(i => String(i.key) === b.dataset.key);
+  switch (b.dataset.act) {
+    case 'example': runExample(EXAMPLES[+b.dataset.key]); break;
+    case 'remove': if (it) removeItem(it); break;
+    case 'retry': if (it) loadItem(it); break;
+    case 'toggle': if (it) { it.visible = !it.visible; syncLayer(it); save(); compare(); } break;
+    case 'focus': if (it && it.status === 'ok' && it.visible) fitTo([it.feature]); break;
+    case 'fit-shared': fitTo([state.shared]); break;
+    case 'fit-all': fitTo(shownItems().map(i => i.feature)); break;
+    case 'clear': clearAll(); break;
+  }
+});
+$('sheet-head').addEventListener('click', () => {
+  const closed = $('sheet').classList.toggle('closed');
+  $('sheet-head').setAttribute('aria-expanded', String(!closed));
+});
+
+async function runExample(ex) {
+  try {
+    const found = await Promise.all(ex.names.map(n => getJson(`${API}/taxa/autocomplete?q=${encodeURIComponent(n)}&per_page=1`)));
+    found.forEach(d => d.results && d.results[0] && addTaxon(toTaxon(d.results[0])));
+  } catch (e) {
+    toast('Could not reach iNaturalist. Check your connection.');
+  }
+}
+
+/* ── Search ── */
+const q = $('q');
+let searchTimer, searchAbort, suggestions = [];
+function closeSearch() {
+  q.value = '';
+  q.blur();
+  suggestions = [];
+  $('suggest').innerHTML = '';
+  $('q-clear').hidden = true;
+  document.body.classList.remove('searching');
+}
+function renderSuggestions(msg) {
+  if (msg) { $('suggest').innerHTML = `<div class="sug-msg">${esc(msg)}</div>`; return; }
+  $('suggest').innerHTML = suggestions.map((t, i) => {
+    const added = state.items.some(it => it.taxon.id === t.id);
+    const badge = t.rank && t.rank !== 'species' ? `<i class="badge">${esc(t.rank)}</i>` : '';
+    return `<button class="sug${i === 0 && !added ? ' first' : ''}" role="option" data-i="${i}" ${added ? 'disabled' : ''}>
+      ${t.photo ? `<img class="thumb" src="${esc(t.photo)}" alt="">` : '<div class="thumb"></div>'}
+      <div class="names"><b>${esc(displayName(t))}</b>
+        <span>${t.common ? `<span class="sci" style="display:inline">${esc(t.name)}</span>` : ''}${badge}${added ? ' · on the map' : ''}</span></div>
+    </button>`;
+  }).join('');
+}
+async function search(term) {
+  if (searchAbort) searchAbort.abort();
+  searchAbort = new AbortController();
+  try {
+    const d = await getJson(`${API}/taxa/autocomplete?q=${encodeURIComponent(term)}&per_page=8`, searchAbort.signal);
+    if (q.value.trim() !== term) return;
+    suggestions = (d.results || []).map(toTaxon);
+    renderSuggestions(suggestions.length ? '' : `Nothing on iNaturalist matches "${term}"`);
+  } catch (e) {
+    if (e.name === 'AbortError') return;
+    suggestions = [];
+    renderSuggestions('Could not reach iNaturalist. Check your connection.');
+  }
+}
+q.addEventListener('focus', () => document.body.classList.add('searching'));
+q.addEventListener('blur', () => { if (!q.value) document.body.classList.remove('searching'); });
+q.addEventListener('input', () => {
+  const term = q.value.trim();
+  $('q-clear').hidden = !q.value;
+  clearTimeout(searchTimer);
+  if (term.length < 2) { suggestions = []; $('suggest').innerHTML = ''; return; }
+  searchTimer = setTimeout(() => search(term), 220);
+});
+q.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeSearch();
+  if (e.key !== 'Enter') return;
+  const pick = suggestions.find(t => !state.items.some(it => it.taxon.id === t.id));
+  if (pick) choose(pick);
+});
+function choose(taxon) {
+  closeSearch();
+  addTaxon(taxon);
+}
+// pointerdown is prevented so tapping a suggestion doesn't blur the field (and hide the list) first.
+$('suggest').addEventListener('pointerdown', e => e.preventDefault());
+$('suggest').addEventListener('click', e => {
+  const b = e.target.closest('.sug');
+  if (b && !b.disabled) choose(suggestions[+b.dataset.i]);
+});
+$('q-clear').addEventListener('click', () => { closeSearch(); });
+map.on('movestart', e => { if (e.originalEvent && document.activeElement === q) closeSearch(); });
+
+/* ── About and updates ── */
+function setAbout(open) { $('about').classList.toggle('show', open); }
+$('about-btn').addEventListener('click', () => setAbout(true));
+$('about-close').addEventListener('click', () => setAbout(false));
+$('about').addEventListener('click', e => { if (e.target === $('about')) setAbout(false); });
+
+let updateVersion = '';
+function showUpdate(text, busy) {
+  const b = $('update');
+  b.textContent = text;
+  b.disabled = !!busy;
+  b.classList.add('show');
+}
+if (native) {
+  $('version').textContent = 'Version ' + native.getVersion();
+  $('check-update').hidden = false;
+  $('check-update').addEventListener('click', () => { toast('Checking for updates…'); native.checkForUpdate(true); });
+  $('update').addEventListener('click', () => { showUpdate('Downloading update…', true); native.installUpdate(); });
+}
+// Called by the Android wrapper.
+window.SpeciesMap = {
+  onUpdateAvailable(version) {
+    updateVersion = version;
+    setAbout(false);
+    showUpdate(`Update to version ${version}`);
+  },
+  onNoUpdate(failed) { toast(failed ? 'Could not check for updates' : 'You have the latest version'); },
+  onUpdateProgress(pct) { showUpdate(`Downloading update… ${pct}%`, true); },
+  onUpdateFailed(reason) {
+    showUpdate(`Update to version ${updateVersion}`);
+    if (reason !== 'cancelled') toast('Update failed: ' + reason);
+  },
+  // Returns true if the back press closed something inside the page.
+  onBack() {
+    if ($('about').classList.contains('show')) { setAbout(false); return true; }
+    if (document.body.classList.contains('searching')) { closeSearch(); return true; }
+    return false;
+  }
+};
+
+render();
+restore();
+if (native) native.checkForUpdate(false);
+</script>
+</body>
+</html>
