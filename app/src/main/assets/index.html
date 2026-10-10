@@ -250,7 +250,7 @@
       have recorded each species. They are estimates, not surveyed boundaries, and less-observed species
       may have no range at all.</p>
     <p><b>About sightings.</b> The Sightings button adds a dot for each research-grade iNaturalist
-      observation. Dots show where people have looked, so gaps do not mean absence. Faded circles are
+      observation. Dots show where people have looked, so gaps do not mean absence. Faint dots are
       sightings whose location iNaturalist has blurred, usually to protect a threatened species.</p>
     <p>Range data © <a href="https://www.inaturalist.org/geo_model" target="_blank" rel="noopener">iNaturalist</a> (CC BY 4.0).
       Map © <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a>,
@@ -283,8 +283,8 @@ const GROUP_LIMIT = 40;
 const STORE_KEY = 'speciesmap.items';
 const SIGHTINGS_KEY = 'speciesmap.sightings';
 // A broken-out group shows sightings for every species only up to this many; each species is
-// its own tile layer, so beyond that they appear for the spotlighted species alone.
-const SIGHTINGS_MAX_SPECIES = 20;
+// its own pair of tile layers, so beyond that they appear for the spotlighted species alone.
+const SIGHTINGS_MAX_SPECIES = 15;
 const EXAMPLES = [
   { label: 'Monarch & common milkweed', names: ['Danaus plexippus', 'Asclepias syriaca'] },
   { label: 'Wolf & moose', names: ['Canis lupus', 'Alces alces'] },
@@ -441,12 +441,19 @@ function bounds(features) {
   }
   return [w, s, e, n];
 }
-// Sightings are iNaturalist's own map tiles of research-grade observations, one layer per
-// species (or per group shown as one range), tinted to match its range.
+// Sightings are iNaturalist's own map tiles of research-grade observations, drawn by its
+// server as circles tinted to match the range, so the cost here is the same however many
+// observations there are. Each species (or group shown as one range) takes two layers: faint
+// circles for sightings whose location iNaturalist has blurred, solid ones for the rest on top.
+const SIGHTING_STYLES = [
+  ['blurred', 'obscuration=obscured&opacity=0.3&line_opacity=0.5'],
+  ['exact', 'geoprivacy=open&taxon_geoprivacy=open&opacity=0.95']
+];
 function wantedSightings() {
   const want = new Map();
   if (!state.sightings) return want;
-  const add = (taxon, color) => want.set(`sightings-${taxon.id}-${color.slice(1)}`, { taxon, color });
+  const add = (taxon, color) => SIGHTING_STYLES.forEach(([kind, query]) =>
+    want.set(`sightings-${taxon.id}-${color.slice(1)}-${kind}`, { taxon, color, query }));
   for (const it of shownItems()) {
     if (!isSplit(it)) add(it.taxon, it.color);
     else if (it.spot != null) it.members.filter(m => m.taxon.id === it.spot).forEach(m => add(m.taxon, m.color));
@@ -463,10 +470,11 @@ function syncSightings() {
     map.removeSource(id);
     sightingLayers.delete(id);
   }
-  for (const [id, { taxon, color }] of want) {
+  for (const [id, { taxon, color, query }] of want) {
     if (sightingLayers.has(id)) continue;
     map.addSource(id, { type: 'raster', tileSize: 512, tiles: [
-      `${API}/points/{z}/{x}/{y}.png?taxon_id=${taxon.id}&quality_grade=research&color=%23${color.slice(1)}`] });
+      `${API}/colored_heatmap/{z}/{x}/{y}.png?taxon_id=${taxon.id}&quality_grade=research&color=%23${color.slice(1)}`
+      + `&width=8&line_width=1&line_color=%23ffffff&comp_op=src-over&${query}`] });
     map.addLayer({ id, type: 'raster', source: id }, labelLayerId());
     sightingLayers.add(id);
   }
