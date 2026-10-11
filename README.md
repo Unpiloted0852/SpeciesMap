@@ -20,6 +20,8 @@ Coffee: https://ko-fi.com/unpiloted0852
   one to spotlight it.
 - **Sightings** overlays research-grade iNaturalist observations as dots in each species'
   colour, for detail finer than the range model's roughly 45 km cells.
+- **Seasons** charts sightings by month for each species, within the map view or worldwide,
+  and names the month when they are all recorded most. Tap a month to filter the dots.
 - Hide a species with the eye button to compare the rest, tap a row to zoom to that range, or
   tap the map to see which of your species are expected at that spot.
 - Compare up to eight at once. The list is remembered between launches.

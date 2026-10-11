@@ -180,6 +180,23 @@
   .row .stat.bad { color: var(--bad); }
 
   .swatch { width: 24px; height: 24px; border-radius: 7px; background: var(--shared); border: 2px solid var(--shared-line); flex: none; }
+  .seasons { border-top: 1px solid var(--line); padding: 4px 0 8px; }
+  .seasons-head { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; text-align: left; font-weight: 600; }
+  .seasons-head span { flex: 1; }
+  .seasons-head svg { color: var(--muted); }
+  .seasons-head svg:last-child { transition: transform .2s; }
+  .seasons-head[aria-expanded="true"] svg:last-child { transform: rotate(180deg); }
+  .season-chart { display: block; width: 100%; height: auto; }
+  .season-chart text { font-size: 11px; fill: var(--muted); }
+  .season-chart text.on { fill: var(--ink); font-weight: 700; }
+  .season-chart g { cursor: pointer; }
+  .season-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--muted); margin-top: 4px; }
+  .season-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .season-legend i { width: 14px; height: 3px; border-radius: 2px; }
+  .season-legend i.sq { width: 10px; height: 10px; background: var(--shared); }
+  .season-hint { font-size: 12.5px; color: var(--muted); margin: 8px 0 10px; }
+  .seasons .seg { display: inline-flex; }
+  .seasons .seg button { min-height: 34px; font-size: 13px; }
   .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
   .btn { min-height: 44px; padding: 0 16px; border-radius: 22px; font-weight: 600; font-size: 14px; background: var(--surface-2); display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: var(--ink); }
   .btn.primary { background: var(--accent); color: var(--accent-ink); }
@@ -231,6 +248,7 @@
     <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M3 3l18 18M10.6 5.1A9.6 9.6 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4M6.5 6.6A17 17 0 0 0 2 12s3.6 7 10 7a9.700 9.700 0 0 0 4.200-1"/></symbol>
     <symbol id="i-retry" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.300 6.300M20 4v7h-7"/></symbol>
     <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="7" cy="8" r="2"/><circle cx="16" cy="6" r="2"/><circle cx="12" cy="14" r="2"/><circle cx="18" cy="17" r="2"/><circle cx="6" cy="18" r="2"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/></symbol>
     <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.400-7-10a4 4 0 0 1 7-2.600A4 4 0 0 1 19 10c0 5.600-7 10-7 10Z"/></symbol>
   </defs>
 </svg>
@@ -274,6 +292,9 @@
     <p><b>About sightings.</b> The Sightings button adds a dot for each research-grade iNaturalist
       observation. Dots show where people have looked, so gaps do not mean absence. Faint dots are
       sightings whose location iNaturalist has blurred, usually to protect a threatened species.</p>
+    <p><b>About seasons.</b> The Seasons chart counts research-grade sightings by month, with each
+      species scaled to its own busiest month. It shows when things get recorded, which leans
+      towards when people are outdoors, and it says nothing about flowering or life stage.</p>
     <p>Range data © <a href="https://www.inaturalist.org/geo_model" target="_blank" rel="noopener">iNaturalist</a> (CC BY 4.0).
       Map © <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a>,
       <a href="https://www.openmaptiles.org" target="_blank" rel="noopener">OpenMapTiles</a> and
@@ -312,6 +333,10 @@ const PALETTE = ['#d1495b', '#2e86ab', '#8f5fbf', '#e07a2f', '#17a398', '#c04cae
 const GROUP_LIMIT = 40;
 const STORE_KEY = 'speciesmap.items';
 const SIGHTINGS_KEY = 'speciesmap.sightings';
+const SEASONS_KEY = 'speciesmap.seasons';
+// Below this many sightings a species' monthly pattern is noise, so it is left off the chart.
+const SEASON_MIN_SIGHTINGS = 30;
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 // A broken-out group shows sightings for every species only up to this many; each species is
 // its own pair of tile layers, so beyond that they appear for the spotlighted species alone.
 const SIGHTINGS_MAX_SPECIES = 15;
@@ -331,7 +356,9 @@ try { themeChoice = localStorage.getItem(THEME_KEY) || 'system'; } catch (e) { /
 const wantsDark = () => themeChoice === 'dark' || (themeChoice === 'system' && darkQuery.matches);
 let dark = wantsDark();
 
-const state = { items: [], shared: null, sharedKm2: 0, sharedFailed: false, comparing: false, sightings: false };
+const state = { items: [], shared: null, sharedKm2: 0, sharedFailed: false, comparing: false, sightings: false,
+  // scope: count sightings in the map view or worldwide; month: 1-12 filters the dots; rows: null while loading
+  seasons: { open: false, scope: 'view', month: null, rows: null } };
 let styleReady = false;
 const sightingLayers = new Set();
 let herePopup = null;
@@ -516,8 +543,10 @@ const SIGHTING_STYLES = [
 function wantedSightings() {
   const want = new Map();
   if (!state.sightings) return want;
+  const month = state.seasons.open ? state.seasons.month : null;
   const add = (taxon, color) => SIGHTING_STYLES.forEach(([kind, query]) =>
-    want.set(`sightings-${taxon.id}-${color.slice(1)}-${kind}`, { taxon, color, query }));
+    want.set(`sightings-${taxon.id}-${color.slice(1)}-${kind}-${month || 'all'}`,
+      { taxon, color, query: query + (month ? `&month=${month}` : '') }));
   for (const it of shownItems()) {
     if (!isSplit(it)) add(it.taxon, it.color);
     else if (it.spot != null) it.members.filter(m => m.taxon.id === it.spot).forEach(m => add(m.taxon, m.color));
@@ -875,6 +904,103 @@ async function compare() {
   if (styleReady && map.getSource('shared')) map.getSource('shared').setData(state.shared || EMPTY);
   syncSightings();
   render();
+  refreshSeasons();
+}
+
+/* ── Seasons ── */
+// One line per thing shown on the map: a species, a group as a whole, or the species
+// spotlighted inside a broken-out group.
+function seasonSeries() {
+  return shownItems().map(it => {
+    const m = isSplit(it) && it.spot != null && it.members.find(m => m.taxon.id === it.spot);
+    return m ? { taxon: m.taxon, color: m.color } : { taxon: it.taxon, color: it.color };
+  });
+}
+// The map view as iNaturalist's bounding-box query, or '' for the whole world.
+function viewQuery() {
+  if (state.seasons.scope !== 'view') return '';
+  const b = map.getBounds();
+  if (b.getEast() - b.getWest() >= 360) return '';
+  const wrap = lng => ((lng + 540) % 360 + 360) % 360 - 180;
+  const lat = v => Math.max(-90, Math.min(90, v)).toFixed(2);
+  return `&swlat=${lat(b.getSouth())}&swlng=${wrap(b.getWest()).toFixed(2)}&nelat=${lat(b.getNorth())}&nelng=${wrap(b.getEast()).toFixed(2)}`;
+}
+const seasonCache = new Map();
+function monthlyCounts(taxonId, where) {
+  const key = taxonId + where;
+  if (!seasonCache.has(key)) {
+    const request = getJson(`${API}/observations/histogram?taxon_id=${taxonId}&quality_grade=research&date_field=observed&interval=month_of_year${where}`)
+      .then(d => MONTHS.map((_, i) => d.results.month_of_year[i + 1] || 0));
+    request.catch(() => seasonCache.delete(key)); // let a failed lookup be retried
+    seasonCache.set(key, request);
+  }
+  return seasonCache.get(key);
+}
+let seasonsRun = 0;
+async function refreshSeasons() {
+  const s = state.seasons;
+  if (!s.open) return;
+  const run = ++seasonsRun;
+  const series = seasonSeries();
+  const where = viewQuery();
+  s.rows = null;
+  render();
+  const rows = await Promise.all(series.map(async x => {
+    const counts = await monthlyCounts(x.taxon.id, where).catch(() => null);
+    return { ...x, counts, total: counts ? counts.reduce((a, b) => a + b, 0) : 0 };
+  }));
+  if (run !== seasonsRun) return;
+  s.rows = rows;
+  render();
+}
+let seasonsTimer;
+map.on('moveend', () => {
+  if (!state.seasons.open || state.seasons.scope !== 'view') return;
+  clearTimeout(seasonsTimer);
+  seasonsTimer = setTimeout(refreshSeasons, 600);
+});
+function saveSeasons() {
+  try {
+    localStorage.setItem(SEASONS_KEY, JSON.stringify({ open: state.seasons.open, scope: state.seasons.scope }));
+  } catch (e) { /* not remembered */ }
+}
+function seasonsHtml() {
+  const s = state.seasons;
+  if (!shownItems().length) return '';
+  const head = title => `<button class="seasons-head" data-act="seasons-toggle" aria-expanded="${s.open}">
+      ${icon('calendar')}<span>${esc(title)}</span>${icon('chev')}</button>`;
+  if (!s.open) return `<div class="seasons">${head('Seasons')}</div>`;
+  if (!s.rows) return `<div class="seasons">${head('Counting sightings…')}</div>`;
+
+  // Each species is scaled to its own peak month; "together" is the lowest of them that month.
+  const usable = s.rows.filter(r => r.total >= SEASON_MIN_SIGHTINGS);
+  const scaled = usable.map(r => { const peak = Math.max(...r.counts); return r.counts.map(c => c / peak); });
+  const together = MONTHS.map((_, i) => usable.length ? Math.min(...scaled.map(v => v[i])) : 0);
+  const best = together.indexOf(Math.max(...together));
+  const title = !usable.length ? 'Not enough sightings here'
+    : together[best] === 0 ? 'No month in common'
+    : `${usable.length > 1 ? 'Best month' : 'Most sightings'}: ${MONTHS[best]}`;
+
+  const x = i => 16 + i * 26.2, y = v => 86 - v * 78;
+  const bars = usable.length > 1 ? together.map((v, i) => v > 0
+    ? `<rect x="${x(i) - 8}" y="${y(v).toFixed(1)}" width="16" height="${(v * 78).toFixed(1)}" rx="3" fill="var(--shared)" opacity="${i === best ? 1 : 0.35}"/>` : '').join('') : '';
+  const lines = usable.map((r, n) =>
+    `<polyline points="${scaled[n].map((v, i) => `${x(i)},${y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="${r.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`).join('');
+  const months = MONTHS.map((name, i) => `<g data-act="month" data-key="${i + 1}" role="button" aria-label="${name}" aria-pressed="${s.month === i + 1}">
+      <rect x="${(x(i) - 13.1).toFixed(1)}" y="0" width="26.2" height="112" rx="6" fill="${s.month === i + 1 ? 'var(--surface-2)' : 'transparent'}"/>
+      <text x="${x(i)}" y="105" text-anchor="middle" class="${s.month === i + 1 ? 'on' : ''}">${name[0]}</text></g>`).join('');
+  const legend = s.rows.map(r => `<span><i style="background:${r.color}"></i>${esc(displayName(r.taxon))}${
+    r.counts ? (r.total < SEASON_MIN_SIGHTINGS ? ' (too few sightings)' : '') : ' (could not load)'}</span>`).join('')
+    + (usable.length > 1 ? '<span><i class="sq"></i>All together</span>' : '');
+  const hint = s.month ? `Dots on the map show ${MONTHS[s.month - 1]} only. Tap it again to clear.`
+    : 'Tap a month to see where the sightings are then.';
+  const scope = (id, label) => `<button role="radio" data-act="seasons-scope" data-key="${id}" aria-checked="${s.scope === id}">${label}</button>`;
+  return `<div class="seasons">${head(title)}
+    <svg class="season-chart" viewBox="0 0 320 112" role="img" aria-label="Sightings by month">${months}${bars}${lines}</svg>
+    <div class="season-legend">${legend}</div>
+    <p class="season-hint">${hint}</p>
+    <div class="seg" role="radiogroup" aria-label="Where to count sightings">${scope('view', 'This map view')}${scope('world', 'Worldwide')}</div>
+  </div>`;
 }
 
 /* ── Sheet ── */
@@ -952,7 +1078,7 @@ function render() {
   }).join('');
 
   const canFit = shown.length > 0;
-  $('sheet-body').innerHTML = `${rows}
+  $('sheet-body').innerHTML = `${rows}${seasonsHtml()}
     <div class="actions">
       ${state.shared ? '<button class="btn primary" data-act="fit-shared">Zoom to shared</button>' : ''}
       ${canFit ? '<button class="btn" data-act="fit-all">Show all</button>' : ''}
@@ -970,7 +1096,7 @@ $('sheet-body').addEventListener('click', e => {
     case 'retry': if (it) loadItem(it); break;
     case 'toggle': if (it) { it.visible = !it.visible; syncLayer(it); save(); compare(); } break;
     case 'split':
-      if (it) { it.expanded = !it.expanded; it.spot = null; syncLayer(it); syncSightings(); save(); render(); sightingsHint(it); }
+      if (it) { it.expanded = !it.expanded; it.spot = null; syncLayer(it); syncSightings(); save(); render(); sightingsHint(it); refreshSeasons(); }
       break;
     case 'member': {
       // Tapping a species spotlights it and zooms there; tapping it again shows them all.
@@ -980,7 +1106,28 @@ $('sheet-body').addEventListener('click', e => {
       syncLayer(it);
       syncSightings();
       render();
+      refreshSeasons();
       fitTo([it.spot == null ? it.feature : m.feature]);
+      break;
+    }
+    case 'seasons-toggle':
+      state.seasons.open = !state.seasons.open;
+      if (!state.seasons.open && state.seasons.month) { state.seasons.month = null; syncSightings(); }
+      saveSeasons();
+      render();
+      refreshSeasons();
+      break;
+    case 'seasons-scope':
+      state.seasons.scope = b.dataset.key;
+      saveSeasons();
+      refreshSeasons();
+      break;
+    case 'month': {
+      // Filters the sighting dots to one month, turning them on if they were off.
+      const month = +b.dataset.key;
+      state.seasons.month = state.seasons.month === month ? null : month;
+      if (state.seasons.month && !state.sightings) setSightings(true); else syncSightings();
+      render();
       break;
     }
     case 'focus': if (it && it.status === 'ok' && it.visible) fitTo([it.feature]); break;
@@ -1132,6 +1279,11 @@ window.SpeciesMap = {
 };
 
 try { setSightings(!!localStorage.getItem(SIGHTINGS_KEY)); } catch (e) { /* stays off */ }
+try {
+  const saved = JSON.parse(localStorage.getItem(SEASONS_KEY)) || {};
+  state.seasons.open = saved.open === true;
+  if (saved.scope === 'world') state.seasons.scope = 'world';
+} catch (e) { /* defaults */ }
 applyTheme();
 render();
 restore();
