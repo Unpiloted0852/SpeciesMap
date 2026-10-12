@@ -589,7 +589,15 @@ function fitTo(features) {
 }
 function shownItems() { return state.items.filter(i => i.status === 'ok' && i.visible); }
 
+// A tap on the map opens the "expected here" popup; the next tap anywhere closes it.
+function closeHere() {
+  if (!herePopup) return false;
+  herePopup.remove();
+  herePopup = null;
+  return true;
+}
 map.on('click', e => {
+  if (closeHere()) return;
   const shown = shownItems();
   if (!shown.length) return;
   const ll = e.lngLat.wrap();
@@ -605,11 +613,11 @@ map.on('click', e => {
     ? '<div class="here-title">Expected here</div>' + here.map(x =>
         `<div class="here-row"><span class="dot" style="background:${x.color}"></span>${esc(displayName(x.taxon))}</div>`).join('')
     : `<div class="here-none">${single ? 'Not' : 'None of them are'} expected here</div>`;
-  if (herePopup) herePopup.remove();
-  herePopup = new maplibregl.Popup({ anchor: 'bottom', closeButton: false, maxWidth: '260px' })
+  herePopup = new maplibregl.Popup({ anchor: 'bottom', closeButton: false, closeOnClick: false, maxWidth: '260px' })
     .setLngLat(e.lngLat)
     .setHTML(body)
     .addTo(map);
+  herePopup.getElement().addEventListener('click', closeHere);
 });
 
 /* ── Range data ── */
@@ -857,14 +865,14 @@ async function loadItem(it) {
 function removeItem(it) {
   state.items = state.items.filter(i => i !== it);
   dropLayer(it);
-  if (herePopup) herePopup.remove();
+  closeHere();
   save();
   compare();
 }
 function clearAll() {
   state.items.forEach(dropLayer);
   state.items = [];
-  if (herePopup) herePopup.remove();
+  closeHere();
   save();
   compare();
   map.flyTo({ center: [0, 25], zoom: 1.2, duration: 700 });
@@ -1274,6 +1282,7 @@ window.SpeciesMap = {
   onBack() {
     if ($('about').classList.contains('show')) { setAbout(false); return true; }
     if (document.body.classList.contains('searching')) { closeSearch(); return true; }
+    if (closeHere()) return true;
     return false;
   }
 };
